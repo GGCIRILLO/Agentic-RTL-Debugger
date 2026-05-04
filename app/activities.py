@@ -5,7 +5,7 @@ Each activity is a plain async function decorated with @activity.defn.
 
 Implementation status:
   Phase 3 — DONE : load_case_files, run_compile, run_simulation
-  Phase 4 — stub : parse_simulation_log, build_context
+  Phase 4 — DONE : parse_simulation_log, build_context
   Phase 5 — stub : generate_root_cause, generate_patch
   Phase 7 — stub : apply_patch, rerun_simulation, save_report
 """
@@ -20,6 +20,8 @@ from pathlib import Path
 from temporalio import activity
 
 from app.config import config
+from app.context_builder import build_context as _build_context
+from app.log_parser import parse_log
 from app.models import (
     CaseFiles,
     DebugReport,
@@ -153,20 +155,66 @@ async def run_simulation(case_files: CaseFiles) -> SimulationResult:
 
 
 # ---------------------------------------------------------------------------
-# Phase 4: Parsing & context  (stubs)
+# Phase 4: Parsing & context
 # ---------------------------------------------------------------------------
 
 
 @activity.defn
 async def parse_simulation_log(sim_result: SimulationResult) -> FailureSummary:
-    """Extract the primary failure from the simulation log."""
-    raise NotImplementedError("parse_simulation_log — implement in Phase 4")
+    """Extract the primary failure from the simulation log.
+
+    Delegates to app.log_parser.parse_log which applies regex patterns
+    covering common vvp failure formats (FAILED, ERROR, MISMATCH, etc.)
+    and extracts suspected file/line references.
+
+    Returns a FailureSummary with:
+      - raw_failure   : the matched failure lines (or first 500 chars as fallback)
+      - suspected_module : first file:line reference found (RTL or testbench path)
+      - suspected_lines  : deduplicated list of line numbers referenced in the log
+      - failure_type     : coarse category derived from the matched pattern keyword
+    """
+    logger.info(
+        "Parsing simulation log (%d chars)", len(sim_result.simulation_log)
+    )
+
+    failure = parse_log(sim_result.simulation_log)
+
+    logger.info(
+        "Parsed failure: type=%s  module=%s  lines=%s",
+        failure.failure_type,
+        failure.suspected_module,
+        failure.suspected_lines,
+    )
+    return failure
 
 
 @activity.defn
 async def build_context(args: tuple[CaseFiles, FailureSummary]) -> str:
-    """Select the relevant RTL fragments and return a compact context string."""
-    raise NotImplementedError("build_context — implement in Phase 4")
+    """Select the relevant RTL fragments and return a compact context string.
+
+    Uses a ±8-line window around each suspected line number extracted by
+    parse_simulation_log.  When no line numbers are available it falls back
+    to the full RTL source (safe for the small demo files in cases/).
+
+    The returned string is a numbered snippet ready to be embedded verbatim
+    in the LLM prompt built in Phase 5.
+    """
+    case_files, failure = args
+
+    logger.info(
+        "Building context for case_id=%s  suspected_lines=%s",
+        case_files.case_id,
+        failure.suspected_lines,
+    )
+
+    context = _build_context(case_files, failure)
+
+    logger.info(
+        "Context built: %d lines / %d chars",
+        context.count("\n") + 1,
+        len(context),
+    )
+    return context
 
 
 # ---------------------------------------------------------------------------
