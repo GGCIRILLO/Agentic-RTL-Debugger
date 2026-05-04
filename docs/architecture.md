@@ -2,127 +2,148 @@
 
 ## Overview
 
-This project is a small **Temporal-powered agentic RTL debugger** built to demonstrate how an AI-assisted verification workflow can be orchestrated as a durable system instead of a fragile script.
+This project is a **Temporal-powered agentic RTL debugger** built to demonstrate how an AI-assisted verification workflow can be orchestrated as a durable, inspectable system instead of a fragile script.
 
-The workflow takes a hardware debug case as input, executes simulation-related steps, analyzes failures, proposes a patch, waits for human approval, and then reruns verification. Temporal is the orchestration layer that makes this flow durable, inspectable, and resumable across worker restarts.
+The workflow takes a hardware debug case as input, executes simulation-related steps, analyzes failures, proposes a patch, waits for human approval, and then reruns verification. Temporal is the orchestration layer that makes this flow durable and resumable across worker restarts.
 
-## Design principles
+## Design Principles
 
-The project follows a strict separation between:
+The project enforces a strict separation between:
 
-- **Workflow code**, which must stay deterministic and only orchestrate state transitions.
-- **Activity code**, which contains side effects such as filesystem access, subprocess execution, and LLM calls.
+- **Workflow code** — must stay fully deterministic. It only orchestrates state transitions and schedules activities. No I/O, no subprocesses, no randomness.
+- **Activity code** — contains all side effects: filesystem access, subprocess execution (iverilog, vvp), LLM/API calls. Each activity is independently retried by Temporal on failure.
 
-This separation matters because Temporal replays workflow history to resume execution safely after crashes or restarts.
+This separation is not optional: Temporal replays the workflow event history to resume execution after crashes or worker restarts. Any non-determinism in the workflow function would cause a non-determinism error on replay.
 
-## Runtime entry points
+## Runtime Entry Points
 
-The repository exposes three operational entry points:
+| Script | Command | Purpose |
+|---|---|---|
+| `run_worker.py` | `python run_worker.py` | Start the Temporal Worker, register workflow and activities |
+| `run_starter.py` | `python run_starter.py counter_bug` | Start a new workflow execution for a case |
+| `run_signal.py` | `python run_signal.py rtl-debug-counter_bug approve` | Send human approval/rejection signal |
 
-- `run_worker.py`: starts the Temporal Worker, connects to the Temporal server, and registers the workflow plus all activities.
-- `run_starter.py`: starts a new workflow execution for a selected `case_id`.
-- `run_signal.py`: sends an approval or rejection Signal to a running workflow execution.
-
-These three scripts are enough to demonstrate the full orchestration lifecycle: start, pause, inspect, resume.
-
-## Workflow structure
+## Workflow Structure
 
 The main orchestration logic lives in `app/workflows.py` inside `RTLDebugWorkflow`.
 
 The workflow manages three categories of state:
-
-- current workflow status
-- current human approval state
-- aggregated debug report
+- current execution status (string label)
+- human approval state (enum: pending / approved / rejected)
+- aggregated `DebugReport` built incrementally across steps
 
 The workflow exposes:
+- a **Signal** handler `submit_approval` — injects the human decision into the running execution via Temporal message passing
+- two **Query** handlers `get_status` and `get_report` — read workflow state without mutating it, inspectable from the Temporal Web UI at any point
 
-- a **Signal** handler, `submit_approval`, used to inject the human decision into the running execution.
-- two **Query** handlers, `get_status` and `get_report`, used to inspect workflow state without mutating it.
+The central pause point uses `workflow.wait_condition(lambda: self._approval is not None, timeout=timedelta(hours=24))`, which durably parks the execution until a signal arrives or the timeout expires.
 
-The central pause point is implemented with `workflow.wait_condition(...)`, which allows the execution to wait durably for approval instead of blocking in a fragile, process-local way.
+## Activity Pipeline
 
-## Activities
+Activities execute in order inside the workflow. Each produces a typed Pydantic artifact consumed by the next step.
 
-All external operations are modeled as Activities in `app/activities.py`. The current implementation status per phase is:
+| # | Activity | Phase | Status | Input → Output |
+|---|---|---|---|---|
+| 1 | `load_case_files` | 3 | ✅ Done | `case_id: str` → `CaseFiles` |
+| 2 | `run_compile` | 3 | ✅ Done | `CaseFiles` → `SimulationResult` |
+| 3 | `run_simulation` | 3 | ✅ Done | `CaseFiles` → `SimulationResult` |
+| 4 | `parse_simulation_log` | 4 | ✅ Done | `SimulationResult` → `FailureSummary` |
+| 5 | `build_context` | 4 | ✅ Done | `(CaseFiles, FailureSummary)` → `str` |
+| 6 | `generate_root_cause` | 5 | 🔲 Stub | `(CaseFiles, FailureSummary, str)` → `RootCauseAnalysis` |
+| 7 | `generate_patch` | 5 | 🔲 Stub | `(CaseFiles, RootCauseAnalysis)` → `PatchProposal` |
+| — | *(human approval signal)* | 6 | ✅ Plumbed | `ApprovalSignal` via Temporal Signal |
+| 8 | `apply_patch` | 7 | 🔲 Stub | `(CaseFiles, PatchProposal)` → `None` |
+| 9 | `rerun_simulation` | 7 | 🔲 Stub | `CaseFiles` → `SimulationResult` |
+| 10 | `save_report` | 7 | 🔲 Stub | `DebugReport` → `None` |
 
-| Activity | Phase | Status |
+## Phase 4 — Parsing & Context Detail
+
+### `parse_simulation_log`
+
+Delegates to `app.log_parser.parse_log(sim_result.simulation_log)`. The parser applies a set of regex patterns covering common vvp failure formats:
+
+- `FAILED: ...` — testbench assertion failures (primary pattern for demo cases)
+- `ERROR: ...` — tool-level errors
+- `ASSERTION FAILED: ...` — SystemVerilog assertions
+- `MISMATCH: ...` and `Expected ..., got ...` — comparison-style failures
+
+It also extracts `file.v:lineno` references from any line in the log to populate `suspected_lines`. Returns a `FailureSummary` with `raw_failure`, `suspected_module`, `suspected_lines`, and `failure_type`.
+
+**Example output for `counter_bug`:**
+```
+raw_failure    : "FAILED: expected count=0 after reset, got count=x\nFAILED: expected count=8 after 8 increments, got count=x\nFAILED: 2 error(s) found"
+suspected_module: "cases/counter_bug/tb_counter.v"
+suspected_lines : [73]
+failure_type   : "simulation_failure"
+```
+
+### `build_context`
+
+Delegates to `app.context_builder.build_context(case_files, failure)`. Uses a ±8-line window around each suspected line number. When no line numbers are available it falls back to the full RTL source.
+
+Returns a numbered snippet string:
+```
+  1  // 4-bit synchronous counter
+  ...
+  11     always @(posedge clk) begin
+  12         if (rst)
+  13             count <= 4'b0;
+  14         count <= count + 1;
+  15     end
+```
+
+This snippet is passed verbatim to the LLM prompt in Phase 5.
+
+## Data Model
+
+All inter-activity data is defined in `app/models.py` as frozen Pydantic v2 models.
+
+| Model | Produced by | Consumed by |
 |---|---|---|
-| `load_case_files` | 3 | Implemented |
-| `run_compile` | 3 | Implemented |
-| `run_simulation` | 3 | Implemented |
-| `parse_simulation_log` | 4 | Stub |
-| `build_context` | 4 | Stub |
-| `generate_root_cause` | 5 | Stub |
-| `generate_patch` | 5 | Stub |
-| `apply_patch` | 7 | Stub |
-| `rerun_simulation` | 7 | Stub |
-| `save_report` | 7 | Stub |
+| `CaseFiles` | `load_case_files` | `run_compile`, `run_simulation`, `build_context`, `generate_root_cause`, `generate_patch`, `apply_patch` |
+| `SimulationResult` | `run_compile`, `run_simulation`, `rerun_simulation` | `parse_simulation_log` |
+| `FailureSummary` | `parse_simulation_log` | `build_context`, `generate_root_cause` |
+| `RootCauseAnalysis` | `generate_root_cause` | `generate_patch`, `DebugReport` |
+| `PatchProposal` | `generate_patch` | `apply_patch`, `DebugReport` |
+| `ApprovalSignal` | human via `run_signal.py` | workflow signal handler |
+| `DebugReport` | assembled by workflow | `save_report` |
 
-## Data model
+## Supporting Modules
 
-The shared data model lives in `app/models.py` and uses Pydantic models to keep data passed across steps structured and explicit.
-
-The most important models are:
-
-- `CaseFiles`: input bundle for a debug case (spec, RTL source, testbench)
-- `SimulationResult`: output of compile and simulate steps
-- `FailureSummary`: structured failure extraction from simulation logs
-- `RootCauseAnalysis`: structured LLM diagnosis with confidence score
-- `PatchProposal`: minimal code patch proposed by the LLM
-- `ApprovalSignal`: human approval or rejection decision
-- `DebugReport`: final aggregated report with before/after outcome
-
-This makes the workflow easier to reason about and easier to demo because every step produces a typed artifact instead of ad-hoc dictionaries.
-
-## Supporting modules
-
-| Module | Purpose |
+| Module | Role |
 |---|---|
-| `app/config.py` | Environment-based runtime configuration |
-| `app/log_parser.py` | Extract primary failure from simulation logs |
-| `app/context_builder.py` | Build a focused RTL context window around suspected lines |
-| `app/patcher.py` | Apply a minimal snippet replacement to the RTL source |
-| `app/prompts.py` | Prompt templates for root cause and patch LLM calls |
-| `app/llm_client.py` | Async LLM client facade (OpenAI / Anthropic / local) |
-| `tools/simulation.py` | Async subprocess wrapper for `iverilog` and `vvp` |
-| `tools/file_reader.py` | Load case files from `cases/<case_id>/` |
-| `tools/diff_utils.py` | Unified diff generation for before/after comparison |
+| `app/config.py` | Environment-based runtime configuration via `python-dotenv` |
+| `app/log_parser.py` | Regex-based failure extraction from vvp logs |
+| `app/context_builder.py` | ±8-line RTL window builder around suspected lines |
+| `app/patcher.py` | Safe `str.replace` patch application |
+| `app/prompts.py` | LLM prompt templates (used in Phase 5) |
+| `app/llm_client.py` | Async LLM client wrapper (OpenAI / Anthropic) |
+| `tools/simulation.py` | Async subprocess wrappers for `iverilog` and `vvp` |
+| `tools/file_reader.py` | Case directory loader and validator |
+| `tools/diff_utils.py` | Unified diff generation with `difflib` |
 
-## Hardware cases
+## Human-in-the-Loop Model
 
-Each debug case lives in `cases/<case_id>/` and contains four files:
+An AI-generated patch is never applied automatically. The workflow pauses after `generate_patch` and waits for a human Signal carrying an `ApprovalSignal` (approved / rejected). This is a deliberate architectural choice: the system is a controlled verification assistant, not an autonomous code mutator.
 
-| File | Purpose |
-|---|---|
-| `spec.md` | Textual specification of the correct behaviour |
-| `<module>.v` | Verilog RTL source with an intentional bug |
-| `tb_<module>.v` | Testbench that exposes the bug and prints FAILED/PASSED |
-| `expected.md` | Known root cause and minimal correct fix (ground truth) |
+The 24-hour timeout on `wait_condition` ensures the workflow eventually fails cleanly if no human responds, leaving a complete audit trail in Temporal event history.
 
-Current cases:
+## Observed Event History (Phase 3 + 4 boundary)
 
-- `counter_bug`: 4-bit synchronous counter with a wrong reset condition ordering.
+The first fully correct run reached event_id 25 before failing at `parse_simulation_log` (stub). With Phase 4 implemented, the next run will advance to `generate_root_cause` (next stub boundary). The expected clean event sequence is:
 
-## Simulation flow (Phase 3)
-
-When Phase 3 activities execute, the simulation flow works as follows:
-
-1. `load_case_files` reads `spec.md`, `<module>.v`, and `tb_<module>.v` from disk.
-2. `run_compile` invokes `iverilog -o sim.out <tb>.v <rtl>.v` and saves the compile log to `outputs/logs/<case_id>_compile.log`.
-3. `run_simulation` invokes `vvp sim.out` and saves the simulation log to `outputs/logs/<case_id>_simulation.log`.
-
-The compiled binary is written to a stable path under the OS temp directory (`/tmp/rtl_debugger/<case_id>/sim.out`) so both activities share it without passing binary data through Temporal.
-
-## Human-in-the-loop model
-
-The project is deliberately designed so that an AI-generated patch is never applied automatically without approval. Instead, the workflow pauses after producing a patch proposal and waits for a human Signal, which matches Temporal's message-passing model for stateful workflows.
-
-This is an important architectural choice because it frames the system as a controlled verification assistant rather than an autonomous code mutator.
-
-## Current status
-
-- Phase 1: complete.
-- Phase 2: complete — Temporal skeleton running and validated.
-- Phase 3: complete — `counter_bug` case files in place, three activities implemented and wired.
-- Phases 4–7: stubs, to be implemented in subsequent phases.
+```
+1   WorkflowExecutionStarted
+2-4  WorkflowTask (initial)
+5-7  load_case_files      → CaseFiles
+8-10 WorkflowTask
+11-13 run_compile         → SimulationResult (compiled=true)
+14-16 WorkflowTask
+17-19 run_simulation      → SimulationResult (simulation_passed=false, 2 FAILED lines)
+20-22 WorkflowTask
+23-25 parse_simulation_log → FailureSummary
+26-28 WorkflowTask
+29-31 build_context       → str (RTL snippet)
+32-34 WorkflowTask
+35-37 generate_root_cause → NotImplementedError (Phase 5 boundary)
+```

@@ -1,113 +1,122 @@
 # Roadmap
 
-## Current state
+## Current State
 
-The current milestone achieved is: **Phase 3 — first executable hardware case**.
+Phases 3 and 4 are fully implemented. The workflow runs end-to-end through simulation, log parsing, and context extraction before hitting the Phase 5 stub boundary at `generate_root_cause`.
 
-Phases 1, 2 and 3 are complete. The workflow can now load a real Verilog case, compile it with Icarus Verilog, run the simulation, and save the logs to disk. The next step is to parse the failure output and extract structured context for the LLM.
+**Current milestone: Phase 4 — parsing and context extraction complete.**
 
-## Phase 1 — Environment and project setup
+## Phase 1 — Environment and Project Setup
 
-### Status
-Complete.
+**Status: ✅ Complete**
 
-### Done
-- Repository created.
-- Base folder structure created.
-- `requirements.txt` and `.env.example` added.
-- Runtime scripts for worker, starter, and signal added.
-- Icarus Verilog installed and validated locally (`iverilog`, `vvp`).
-- Temporal local dev server validated end-to-end.
+- Repository created
+- Base folder structure in place
+- `requirements.txt` and `.env.example` added
+- Runtime scripts for worker, starter, and signal added
+- Local Temporal dev server validated
+- Python venv and dependencies installed
+- Icarus Verilog (`iverilog`, `vvp`) installed and validated locally
 
-## Phase 2 — Minimal Temporal workflow
+## Phase 2 — Minimal Temporal Workflow Skeleton
 
-### Status
-Complete.
+**Status: ✅ Complete**
 
-### Done
-- `RTLDebugWorkflow` implemented with `@workflow.defn` and `@workflow.run`.
-- Signal handler for patch approval added.
-- Query handlers for workflow inspection added.
-- Worker registration implemented in `run_worker.py`.
-- Workflow start logic implemented in `run_starter.py`.
-- Approval signal sender implemented in `run_signal.py`.
-- Skeleton validated against live Temporal dev server.
+- `RTLDebugWorkflow` implemented with `@workflow.defn` / `@workflow.run`
+- Signal handler `submit_approval` implemented with `workflow.wait_condition()`
+- Query handlers `get_status` and `get_report` implemented
+- Worker registration in `run_worker.py`
+- Workflow starter in `run_starter.py`
+- Approval signal sender in `run_signal.py`
+- Full skeleton run validated against live Temporal local instance
+- Event history confirmed clean in Temporal Web UI (SDK: `temporal-python 1.27.0`)
 
-## Phase 3 — First executable hardware case
+## Phase 3 — First Executable Hardware Case
 
-### Status
-Complete.
+**Status: ✅ Complete**
 
-### Done
-- `cases/counter_bug/` created with `spec.md`, `counter.v`, `tb_counter.v`, `expected.md`.
-- `load_case_files` implemented: reads spec, RTL, and testbench from disk.
-- `run_compile` implemented: invokes `iverilog`, saves compile log to `outputs/logs/`.
-- `run_simulation` implemented: invokes `vvp`, saves simulation log to `outputs/logs/`.
-- Bug is reproducible: testbench prints `FAILED` on every run against `counter.v`.
+- `cases/counter_bug/` created with intentional RTL bug (missing `else` on synchronous reset)
+- `load_case_files` implemented — reads spec, RTL, and testbench from `cases/<case_id>/`
+- `run_compile` implemented — invokes `iverilog`, persists compile log to `outputs/logs/`
+- `run_simulation` implemented — invokes `vvp`, persists simulation log to `outputs/logs/`
+- Simulation produces expected 2 failures:
+  - `FAILED: expected count=0 after reset, got count=x`
+  - `FAILED: expected count=8 after 8 increments, got count=x`
+- `SimulationResult` payload confirmed correct in Temporal event history (event_id 19)
 
-## Phase 4 — Failure parsing and context extraction
+## Phase 4 — Failure Parsing and Context Extraction
 
-### Status
-Not started.
+**Status: ✅ Complete**
+
+- `parse_simulation_log` implemented — delegates to `app.log_parser.parse_log()`
+  - Regex patterns cover: `FAILED`, `ERROR`, `ASSERTION FAILED`, `MISMATCH`, `Expected ... got ...`
+  - Extracts `file.v:lineno` references into `suspected_lines`
+  - Returns typed `FailureSummary` with `raw_failure`, `suspected_module`, `suspected_lines`, `failure_type`
+- `build_context` implemented — delegates to `app.context_builder.build_context()`
+  - ±8-line window around each suspected line number
+  - Falls back to full RTL source when no line numbers available
+  - Returns numbered snippet string ready for LLM prompt embedding
+- Workflow now advances past parsing to `generate_root_cause` stub (Phase 5 boundary)
+
+## Phase 5 — LLM Integration
+
+**Status: 🔲 Not started**
 
 ### Goals
-- Implement `parse_simulation_log` using the existing parser utilities in `app/log_parser.py`.
-- Implement `build_context` using the existing context builder in `app/context_builder.py`.
-- Produce structured `FailureSummary` objects from real simulation output.
+
+- Implement `generate_root_cause` in `app/activities.py`
+  - Use `app/llm_client.py` (OpenAI / Anthropic, configurable via `.env`)
+  - Use prompt template from `app/prompts.py`
+  - Input: `(CaseFiles, FailureSummary, context_str)`
+  - Output: structured `RootCauseAnalysis` (Pydantic, parsed from LLM JSON response)
+- Implement `generate_patch`
+  - Input: `(CaseFiles, RootCauseAnalysis)`
+  - Output: `PatchProposal` with `original_snippet` and `patched_snippet`
+- Validate structured JSON output from LLM (use `model_validate_json` or `instructor`)
 
 ### Deliverable
-The workflow advances from raw failure logs to structured, minimal diagnostic context ready for the LLM.
 
-## Phase 5 — LLM integration
+Workflow advances to the human-approval pause point with a concrete `PatchProposal` visible in `get_report` query output.
 
-### Status
-Not started.
+## Phase 6 — Human Approval Loop
 
-### Goals
-- Wire `app/llm_client.py` into the activities.
-- Implement `generate_root_cause`.
-- Implement `generate_patch`.
-- Keep all LLM outputs Pydantic-validated.
-
-### Notes
-The choice between remote APIs and a local model (e.g. Ollama) is intentionally deferred. The Temporal workflow shape is independent of the LLM backend.
-
-## Phase 6 — Human approval loop
-
-### Status
-Partially prepared.
+**Status: 🟡 Plumbed, not validated end-to-end**
 
 ### Done
-- Signal plumbing already exists in workflow and CLI signal sender.
+
+- Signal plumbing exists in workflow and `run_signal.py`
+- `workflow.wait_condition()` with 24-hour timeout in place
 
 ### Remaining
-- Validate the end-to-end pause/resume flow on a real patch proposal.
-- Optionally add query commands for easier live demo inspection.
 
-## Phase 7 — Patch application and rerun
+- Validate end-to-end pause/resume on a real `PatchProposal` once Phase 5 is done
+- Confirm `get_report` query returns the proposal during the wait window
+- Test both `approve` and `reject` signal paths
 
-### Status
-Not started.
+## Phase 7 — Patch Application and Rerun
+
+**Status: 🔲 Not started**
 
 ### Goals
-- Implement `apply_patch`.
-- Implement `rerun_simulation`.
-- Implement `save_report`.
-- Save JSON and Markdown reports under `outputs/reports/`.
+
+- Implement `apply_patch` — write patched RTL to `outputs/patched/<case_id>/`
+- Implement `rerun_simulation` — compile and simulate the patched file
+- Implement `save_report` — persist `DebugReport` as JSON and Markdown under `outputs/reports/`
 
 ### Deliverable
-A complete before/after debug run: original failure, LLM diagnosis, proposed patch, human approval, rerun outcome.
 
-## Phase 8 — Demo polish
+A complete before/after debug run: original failure → LLM patch → human approval → rerun → PASSED (or documented failure if patch is wrong).
 
-### Status
-Not started.
+## Phase 8 — Demo Polish
+
+**Status: 🔲 Not started**
 
 ### Goals
-- Add at least one extra bug case beyond `counter_bug`.
-- Update README with full setup and demo instructions.
-- Prepare a short 2–3 minute live walkthrough script.
 
-## Suggested immediate next step
+- Add at least one additional bug case beyond `counter_bug`
+- Update README with setup instructions and demo walkthrough
+- Prepare a 2–3 minute live demo script covering the full workflow lifecycle
 
-Phase 4: implement `parse_simulation_log` and `build_context` so the workflow can produce a structured `FailureSummary` from the real simulation logs already saved to disk.
+## Immediate Next Step
+
+**Phase 5** — implement `generate_root_cause` and `generate_patch` using the LLM client already present in `app/llm_client.py` and the prompt templates in `app/prompts.py`.
