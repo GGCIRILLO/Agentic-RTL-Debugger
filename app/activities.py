@@ -71,7 +71,7 @@ async def run_compile(case_files: CaseFiles) -> SimulationResult:
     """Compile RTL + testbench with iverilog."""
     logger.info("Compiling case_id=%s", case_files.case_id)
 
-    case_dir    = Path(config.cases_dir) / case_files.case_id
+    case_dir    = Path(config.cases_dir).resolve() / case_files.case_id
     rtl_path    = case_dir / case_files.rtl_filename
     tb_path     = case_dir / case_files.tb_filename
     tmp_dir     = Path(tempfile.gettempdir()) / "rtl_debugger" / case_files.case_id
@@ -99,7 +99,7 @@ async def run_simulation(case_files: CaseFiles) -> SimulationResult:
     """Run the compiled binary with vvp and capture the simulation log."""
     logger.info("Running simulation for case_id=%s", case_files.case_id)
 
-    tmp_dir     = Path(tempfile.gettempdir()) / "rtl_debugger" / case_files.case_id
+    tmp_dir     = (Path(tempfile.gettempdir()) / "rtl_debugger" / case_files.case_id).resolve()
     binary_path = tmp_dir / "sim.out"
 
     if not binary_path.exists():
@@ -264,9 +264,9 @@ async def rerun_simulation(case_files: CaseFiles) -> SimulationResult:
     logger.info("Rerunning simulation with patch for case_id=%s", case_id)
 
     # Paths
-    patched_dir  = Path(config.outputs_dir) / "patched" / case_id
+    patched_dir  = (Path(config.outputs_dir) / "patched" / case_id).resolve()
     rtl_path     = patched_dir / case_files.rtl_filename
-    tb_path      = Path(config.cases_dir) / case_id / case_files.tb_filename
+    tb_path      = (Path(config.cases_dir) / case_id / case_files.tb_filename).resolve()
 
     if not rtl_path.exists():
         raise FileNotFoundError(f"Patched RTL not found at {rtl_path}")

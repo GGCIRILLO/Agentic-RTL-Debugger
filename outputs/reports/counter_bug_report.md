@@ -5,7 +5,7 @@
 ## Failure Summary
 - Module: ``
 - Lines: []
-- Type: (?P<msg>Expected .+, got .+)
+- Type: FAILED
 ```
 FAILED: expected count=0 after reset, got count=x
 FAILED: expected count=0 after reset, got count=x
