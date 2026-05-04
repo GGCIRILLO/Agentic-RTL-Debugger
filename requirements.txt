@@ -1,0 +1,12 @@
+# Temporal Python SDK (>=1.7 uses asyncio-native API)
+temporalio>=1.7.0
+
+# LLM clients
+openai>=1.30.0
+anthropicai>=0.27.0
+
+# Env management
+python-dotenv>=1.0.0
+
+# Utilities
+pydantic>=2.7.0

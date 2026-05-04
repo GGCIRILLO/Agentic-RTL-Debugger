@@ -1,0 +1,51 @@
+"""Utilities for parsing Icarus Verilog simulation output logs.
+
+This module will be called by the parse_simulation_log Activity in Phase 4.
+"""
+
+from __future__ import annotations
+
+import re
+from app.models import FailureSummary
+
+
+# Patterns covering common VCD/vvp failure formats
+_ERROR_PATTERNS = [
+    re.compile(r"ERROR:?\s*(?P<msg>.+)", re.IGNORECASE),
+    re.compile(r"ASSERTION FAILED:?\s*(?P<msg>.+)", re.IGNORECASE),
+    re.compile(r"MISMATCH:?\s*(?P<msg>.+)", re.IGNORECASE),
+    re.compile(r"(?P<msg>Expected .+, got .+)", re.IGNORECASE),
+]
+
+_FILE_LINE_RE = re.compile(r"(?P<file>[\w./]+\.v):(?P<line>\d+)")
+
+
+def parse_log(simulation_log: str) -> FailureSummary:
+    """Extract the primary failure from a vvp simulation log."""
+    lines = simulation_log.splitlines()
+
+    raw_failure_lines: list[str] = []
+    suspected_lines: list[int] = []
+    suspected_module = ""
+    failure_type = ""
+
+    for line in lines:
+        for pattern in _ERROR_PATTERNS:
+            if pattern.search(line):
+                raw_failure_lines.append(line)
+                if not failure_type:
+                    failure_type = pattern.pattern.split(":")[0].strip()
+
+        m = _FILE_LINE_RE.search(line)
+        if m:
+            if not suspected_module:
+                suspected_module = m.group("file")
+            suspected_lines.append(int(m.group("line")))
+
+    raw_failure = "\n".join(raw_failure_lines) or simulation_log[:500]
+    return FailureSummary(
+        raw_failure=raw_failure,
+        suspected_module=suspected_module,
+        suspected_lines=list(dict.fromkeys(suspected_lines)),  # dedup, preserve order
+        failure_type=failure_type or "simulation_failure",
+    )
