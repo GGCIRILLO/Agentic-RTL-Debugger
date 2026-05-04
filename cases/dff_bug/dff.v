@@ -1,5 +1,4 @@
 // D flip-flop with synchronous active-high reset
-// BUG: reset is applied on negedge instead of posedge
 
 `timescale 1ns/1ps
 
@@ -15,7 +14,6 @@ module dff (
             q <= 1'b0;
     end
 
-    // BUG: this second block captures d on the wrong edge
     always @(negedge clk) begin
         if (!rst)
             q <= d;

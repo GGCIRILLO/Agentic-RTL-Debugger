@@ -1,10 +1,5 @@
 // Simple 8-bit ALU
 // Operations: ADD, SUB, AND, OR, XOR, SLT (set less than), SLL, SRL
-//
-// BUGs:
-//   1. SUB opcode is decoded as AND (opcodes swapped)
-//   2. SLT uses unsigned comparison instead of signed
-//   3. SLL shifts right instead of left
 
 `timescale 1ns/1ps
 
@@ -31,12 +26,12 @@ module alu (
     always @(*) begin
         case (op)
             ADD: result = a + b;
-            SUB: result = a & b;        // BUG 1: should be a - b
-            AND: result = a - b;        // BUG 1: should be a & b
+            SUB: result = a & b;
+            AND: result = a - b;  
             OR:  result = a | b;
             XOR: result = a ^ b;
-            SLT: result = (a < b) ? 8'd1 : 8'd0;   // BUG 2: unsigned, should be signed
-            SLL: result = a >> b[2:0];  // BUG 3: should be a << b[2:0]
+            SLT: result = (a < b) ? 8'd1 : 8'd0;  
+            SLL: result = a >> b[2:0];  
             SRL: result = a >> b[2:0];
             default: result = 8'd0;
         endcase

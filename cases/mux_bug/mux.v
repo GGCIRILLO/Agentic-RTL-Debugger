@@ -1,5 +1,4 @@
 // 4-to-1 multiplexer
-// BUG: default case returns 4'b1111 instead of 4'b0000
 
 `timescale 1ns/1ps
 
@@ -14,7 +13,7 @@ module mux4to1 (
             2'b00: y = a;
             2'b01: y = b;
             2'b10: y = c;
-            2'b11: y = 4'b1111; // BUG: should be y = d
+            2'b11: y = 4'b1111;
             default: y = 4'b0;
         endcase
     end

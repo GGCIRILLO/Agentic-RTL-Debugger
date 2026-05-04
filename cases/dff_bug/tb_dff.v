@@ -18,35 +18,42 @@ module tb_dff;
         @(posedge clk); #1;
 
         // After reset, q must be 0
-        if (q !== 1'b0) begin
-            $display("ERROR: after reset expected q=0, got q=%b", q);
+        assert (q === 1'b0) else begin
+            $error("after reset expected q=0, got q=%b", q);
             errors = errors + 1;
         end
 
         // Deassert reset, drive d=1
         rst = 0; d = 1;
-        @(posedge clk); #1;
+        
+        // Check at negedge. q should NOT change yet.
+        @(negedge clk); #1;
+        assert (q === 1'b0) else begin
+            $error("expected q to remain 0 on negedge, got q=%b", q);
+            errors = errors + 1;
+        end
 
-        // q must follow d on posedge: q should be 1
-        if (q !== 1'b1) begin
-            $display("ERROR: expected q=1 after d=1 posedge, got q=%b", q);
+        // Check at posedge. q should now be 1.
+        @(posedge clk); #1;
+        assert (q === 1'b1) else begin
+            $error("expected q=1 after d=1 posedge, got q=%b", q);
             errors = errors + 1;
         end
 
         // Drive d=0
         d = 0;
-        @(posedge clk); #1;
-
-        // q must follow d: q should be 0
-        if (q !== 1'b0) begin
-            $display("ERROR: expected q=0 after d=0 posedge, got q=%b", q);
+        
+        // Check at negedge. q should NOT change yet.
+        @(negedge clk); #1;
+        assert (q === 1'b1) else begin
+            $error("expected q to remain 1 on negedge, got q=%b", q);
             errors = errors + 1;
         end
 
-        // Hold d=0 for one more cycle
+        // Check at posedge. q should now be 0.
         @(posedge clk); #1;
-        if (q !== 1'b0) begin
-            $display("ERROR: expected q=0 (held), got q=%b", q);
+        assert (q === 1'b0) else begin
+            $error("expected q=0 after d=0 posedge, got q=%b", q);
             errors = errors + 1;
         end
 
