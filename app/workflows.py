@@ -4,6 +4,10 @@ Follows Temporal Python SDK >=1.7 conventions:
 - @workflow.defn / @workflow.run
 - workflow.execute_activity for Activities
 - workflow.wait_condition + signal handler for human-in-the-loop
+
+Save-report calls are intentionally absent from early-exit and error paths
+until Phase 7, when save_report is fully implemented. This avoids masking
+NotImplementedError stubs with a second failure during development.
 """
 
 from __future__ import annotations
@@ -15,8 +19,6 @@ from typing import Optional
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
-# Import activities (referenced by name at registration time to avoid
-# importing non-deterministic I/O code inside the workflow sandbox).
 with workflow.unsafe.imports_passed_through():
     from app.models import (
         ApprovalSignal,
@@ -44,9 +46,6 @@ with workflow.unsafe.imports_passed_through():
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Retry policy used for all Activities
-# ---------------------------------------------------------------------------
 _DEFAULT_RETRY = RetryPolicy(
     initial_interval=timedelta(seconds=5),
     backoff_coefficient=2.0,
@@ -93,7 +92,11 @@ class RTLDebugWorkflow:
     @workflow.run
     async def run(self, case_id: str) -> dict:
         workflow_id = workflow.info().workflow_id
-        logger.info("RTLDebugWorkflow started: case_id=%s workflow_id=%s", case_id, workflow_id)
+        logger.info(
+            "RTLDebugWorkflow started: case_id=%s workflow_id=%s",
+            case_id,
+            workflow_id,
+        )
 
         report = DebugReport(
             case_id=case_id,
@@ -101,166 +104,152 @@ class RTLDebugWorkflow:
             status=WorkflowStatus.started,
         )
 
-        try:
-            # ----------------------------------------------------------------
-            # Step 1 – Load source files
-            # ----------------------------------------------------------------
-            case_files: CaseFiles = await workflow.execute_activity(
-                load_case_files,
-                case_id,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=_DEFAULT_RETRY,
-            )
+        # ----------------------------------------------------------------
+        # Step 1 – Load source files
+        # ----------------------------------------------------------------
+        case_files: CaseFiles = await workflow.execute_activity(
+            load_case_files,
+            case_id,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DEFAULT_RETRY,
+        )
 
-            # ----------------------------------------------------------------
-            # Step 2 – Compile
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.simulating
-            compile_result: SimulationResult = await workflow.execute_activity(
-                run_compile,
-                case_files,
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=_DEFAULT_RETRY,
-            )
+        # ----------------------------------------------------------------
+        # Step 2 – Compile
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.simulating
+        compile_result: SimulationResult = await workflow.execute_activity(
+            run_compile,
+            case_files,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_DEFAULT_RETRY,
+        )
 
-            if not compile_result.compiled:
-                report.status = WorkflowStatus.failed
-                report.failure_summary = FailureSummary(
-                    raw_failure=compile_result.compile_log,
-                    failure_type="compile_error",
-                )
-                self._report = report
-                await workflow.execute_activity(
-                    save_report,
-                    report,
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-                return report.model_dump()
-
-            # ----------------------------------------------------------------
-            # Step 3 – Simulate
-            # ----------------------------------------------------------------
-            sim_result: SimulationResult = await workflow.execute_activity(
-                run_simulation,
-                case_files,
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=_DEFAULT_RETRY,
-            )
-
-            if sim_result.simulation_passed:
-                report.status = WorkflowStatus.completed
-                report.rerun_result = sim_result
-                self._report = report
-                await workflow.execute_activity(
-                    save_report,
-                    report,
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-                return report.model_dump()
-
-            # ----------------------------------------------------------------
-            # Step 4 – Parse failure
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.parsing
-            failure: FailureSummary = await workflow.execute_activity(
-                parse_simulation_log,
-                sim_result,
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=_DEFAULT_RETRY,
-            )
-            report.failure_summary = failure
-
-            # ----------------------------------------------------------------
-            # Step 5 – Build context
-            # ----------------------------------------------------------------
-            context: str = await workflow.execute_activity(
-                build_context,
-                (case_files, failure),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=_DEFAULT_RETRY,
-            )
-
-            # ----------------------------------------------------------------
-            # Step 6 – LLM: root cause analysis
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.analyzing
-            root_cause: RootCauseAnalysis = await workflow.execute_activity(
-                generate_root_cause,
-                (case_files, failure, context),
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=_DEFAULT_RETRY,
-            )
-            report.root_cause = root_cause
-
-            # ----------------------------------------------------------------
-            # Step 7 – LLM: patch proposal
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.proposing_patch
-            patch: PatchProposal = await workflow.execute_activity(
-                generate_patch,
-                (case_files, root_cause),
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=_DEFAULT_RETRY,
-            )
-            report.proposed_patch = patch
-
-            # ----------------------------------------------------------------
-            # Step 8 – Wait for human approval (Signal)
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.awaiting_approval
-            logger.info("Workflow paused, waiting for approval signal")
-
-            # Wait up to 24 h for a human decision
-            await workflow.wait_condition(
-                lambda: self._approval is not None,
-                timeout=timedelta(hours=24),
-            )
-
-            if self._approval is None or self._approval.decision == ApprovalStatus.rejected:
-                report.approval_status = ApprovalStatus.rejected
-                report.status = WorkflowStatus.completed
-                self._report = report
-                await workflow.execute_activity(
-                    save_report,
-                    report,
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-                return report.model_dump()
-
-            report.approval_status = ApprovalStatus.approved
-
-            # ----------------------------------------------------------------
-            # Step 9 – Apply patch
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.applying_patch
-            await workflow.execute_activity(
-                apply_patch,
-                (case_files, patch),
-                start_to_close_timeout=timedelta(seconds=30),
-                retry_policy=_DEFAULT_RETRY,
-            )
-
-            # ----------------------------------------------------------------
-            # Step 10 – Rerun simulation on patched file
-            # ----------------------------------------------------------------
-            self._status = WorkflowStatus.rerunning
-            rerun: SimulationResult = await workflow.execute_activity(
-                rerun_simulation,
-                case_files,
-                start_to_close_timeout=timedelta(seconds=60),
-                retry_policy=_DEFAULT_RETRY,
-            )
-            report.rerun_result = rerun
-            report.status = WorkflowStatus.completed
-
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("Workflow failed with exception: %s", exc)
+        if not compile_result.compiled:
+            # Compilation failed: store what we have and surface the error.
+            # save_report is intentionally skipped until Phase 7.
             report.status = WorkflowStatus.failed
+            report.failure_summary = FailureSummary(
+                raw_failure=compile_result.compile_log,
+                failure_type="compile_error",
+            )
+            self._report = report
+            logger.error("Compilation failed for case_id=%s — stopping.", case_id)
+            return report.model_dump()
 
         # ----------------------------------------------------------------
-        # Step 11 – Save final report
+        # Step 3 – Simulate
         # ----------------------------------------------------------------
+        sim_result: SimulationResult = await workflow.execute_activity(
+            run_simulation,
+            case_files,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_DEFAULT_RETRY,
+        )
+
+        if sim_result.simulation_passed:
+            # No failures detected: nothing to debug.
+            # save_report is intentionally skipped until Phase 7.
+            report.status = WorkflowStatus.completed
+            report.rerun_result = sim_result
+            self._report = report
+            logger.info("Simulation passed for case_id=%s — no debug needed.", case_id)
+            return report.model_dump()
+
+        # ----------------------------------------------------------------
+        # Step 4 – Parse failure  [Phase 4]
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.parsing
+        failure: FailureSummary = await workflow.execute_activity(
+            parse_simulation_log,
+            sim_result,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DEFAULT_RETRY,
+        )
+        report.failure_summary = failure
+
+        # ----------------------------------------------------------------
+        # Step 5 – Build context  [Phase 4]
+        # ----------------------------------------------------------------
+        context: str = await workflow.execute_activity(
+            build_context,
+            (case_files, failure),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DEFAULT_RETRY,
+        )
+
+        # ----------------------------------------------------------------
+        # Step 6 – LLM: root cause analysis  [Phase 5]
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.analyzing
+        root_cause: RootCauseAnalysis = await workflow.execute_activity(
+            generate_root_cause,
+            (case_files, failure, context),
+            start_to_close_timeout=timedelta(seconds=120),
+            retry_policy=_DEFAULT_RETRY,
+        )
+        report.root_cause = root_cause
+
+        # ----------------------------------------------------------------
+        # Step 7 – LLM: patch proposal  [Phase 5]
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.proposing_patch
+        patch: PatchProposal = await workflow.execute_activity(
+            generate_patch,
+            (case_files, root_cause),
+            start_to_close_timeout=timedelta(seconds=120),
+            retry_policy=_DEFAULT_RETRY,
+        )
+        report.proposed_patch = patch
+
+        # ----------------------------------------------------------------
+        # Step 8 – Wait for human approval (Signal)
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.awaiting_approval
+        logger.info("Workflow paused, waiting for approval signal (timeout: 24 h)")
+
+        await workflow.wait_condition(
+            lambda: self._approval is not None,
+            timeout=timedelta(hours=24),
+        )
+
+        if self._approval is None or self._approval.decision == ApprovalStatus.rejected:
+            report.approval_status = ApprovalStatus.rejected
+            report.status = WorkflowStatus.completed
+            self._report = report
+            logger.info("Patch rejected or timed out for case_id=%s.", case_id)
+            return report.model_dump()
+
+        report.approval_status = ApprovalStatus.approved
+
+        # ----------------------------------------------------------------
+        # Step 9 – Apply patch  [Phase 7]
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.applying_patch
+        await workflow.execute_activity(
+            apply_patch,
+            (case_files, patch),
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=_DEFAULT_RETRY,
+        )
+
+        # ----------------------------------------------------------------
+        # Step 10 – Rerun simulation on patched file  [Phase 7]
+        # ----------------------------------------------------------------
+        self._status = WorkflowStatus.rerunning
+        rerun: SimulationResult = await workflow.execute_activity(
+            rerun_simulation,
+            case_files,
+            start_to_close_timeout=timedelta(seconds=60),
+            retry_policy=_DEFAULT_RETRY,
+        )
+        report.rerun_result = rerun
+        report.status = WorkflowStatus.completed
         self._report = report
+
+        # ----------------------------------------------------------------
+        # Step 11 – Save final report  [Phase 7]
+        # ----------------------------------------------------------------
         await workflow.execute_activity(
             save_report,
             report,
