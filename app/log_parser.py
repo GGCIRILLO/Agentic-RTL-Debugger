@@ -22,7 +22,15 @@ _FILE_LINE_RE = re.compile(r"(?P<file>[\w./]+\.v):(?P<line>\d+)")
 
 
 def parse_log(simulation_log: str) -> FailureSummary:
-    """Extract the primary failure from a vvp simulation log."""
+    """Extract the primary failure from a vvp simulation log using regex matching.
+
+    Args:
+        simulation_log: The raw output log from the vvp simulation.
+
+    Returns:
+        A FailureSummary object containing the extracted error message, 
+        the suspected file name, the suspected line numbers, and the failure type.
+    """
     lines = simulation_log.splitlines()
 
     raw_failure_lines: list[str] = []

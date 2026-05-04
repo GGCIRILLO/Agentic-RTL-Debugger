@@ -35,11 +35,17 @@ _JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def _parse_json(raw: str) -> dict:
-    """Extract a JSON object from raw LLM output.
+    """Extract a JSON object from raw LLM output using a robust multi-stage strategy.
 
-    Tries direct parse first, then regex extraction of the outermost
-    {...} block (handles ``` fences and leading prose).
-    Raises ValueError if no valid JSON object is found.
+    Args:
+        raw: The raw text string returned by the LLM.
+
+    Returns:
+        A dictionary parsed from the JSON found in the raw text.
+
+    Raises:
+        ValueError: If no valid JSON object could be extracted or parsed 
+            after checking both the full string and the first {...} block.
     """
     raw = raw.strip()
 
@@ -74,9 +80,20 @@ class LLMClient:
     async def chat(self, messages: list[dict]) -> dict:
         """Send messages and return the parsed JSON body of the assistant reply.
 
-        Raises ValueError if the response cannot be parsed as JSON after
-        all extraction attempts.  The caller (activity) should let this
-        propagate so Temporal can retry according to the activity retry policy.
+        This method abstracts away the provider-specific logic and ensures 
+        that the response is always returned as a structured dictionary.
+
+        Args:
+            messages: A list of chat message dictionaries (role, content).
+
+        Returns:
+            A dictionary containing the JSON response from the model.
+
+        Raises:
+            ValueError: If the response cannot be parsed as JSON after
+                all extraction attempts, or if the provider is unsupported.
+                The caller (activity) should let this propagate so Temporal 
+                can retry according to the activity retry policy.
         """
         logger.debug(
             "LLM chat: provider=%s model=%s messages=%d",
@@ -97,10 +114,11 @@ class LLMClient:
     async def _ollama_chat(self, messages: list[dict]) -> dict:
         """Call the Ollama REST API reusing the OpenAI SDK with a custom base_url.
 
-        Ollama does not support response_format=json_object for all models,
-        so we rely on _parse_json() for robust extraction instead.
-        The api_key value is arbitrary — Ollama ignores it but the SDK
-        requires a non-empty string.
+        Args:
+            messages: A list of chat message dictionaries.
+
+        Returns:
+            The parsed JSON response as a dictionary.
         """
         from openai import AsyncOpenAI  # lazy import
 

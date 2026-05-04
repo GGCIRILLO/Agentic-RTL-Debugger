@@ -32,6 +32,7 @@ from app.models import (
 )
 from app.patcher import apply_patch as _apply_patch
 from app.prompts import patch_proposal_prompt, root_cause_prompt
+from tools.diff_utils import unified_diff
 from tools.file_reader import load_case
 from tools.simulation import compile_verilog, run_vvp
 
@@ -56,7 +57,17 @@ def _log_path(case_id: str, suffix: str) -> Path:
 
 @activity.defn
 async def load_case_files(case_id: str) -> CaseFiles:
-    """Read spec, RTL and testbench from cases/<case_id>/."""
+    """Read spec, RTL and testbench from cases/[case_id]/
+
+    Args:
+        case_id: The unique identifier for the debug case (e.g., 'counter_bug').
+
+    Returns:
+        A CaseFiles object containing the source code and metadata for the case.
+
+    Raises:
+        FileNotFoundError: If the case directory or required files are missing.
+    """
     logger.info("Loading case files for case_id=%s", case_id)
     case_files = load_case(case_id)
     logger.info(
@@ -68,7 +79,15 @@ async def load_case_files(case_id: str) -> CaseFiles:
 
 @activity.defn
 async def run_compile(case_files: CaseFiles) -> SimulationResult:
-    """Compile RTL + testbench with iverilog."""
+    """Compile RTL + testbench with iverilog.
+
+    Args:
+        case_files: The bundle of source files to compile.
+
+    Returns:
+        A SimulationResult containing the compilation success status and logs.
+        The logs are also persisted to outputs/logs/.
+    """
     logger.info("Compiling case_id=%s", case_files.case_id)
 
     case_dir    = Path(config.cases_dir).resolve() / case_files.case_id
@@ -96,7 +115,18 @@ async def run_compile(case_files: CaseFiles) -> SimulationResult:
 
 @activity.defn
 async def run_simulation(case_files: CaseFiles) -> SimulationResult:
-    """Run the compiled binary with vvp and capture the simulation log."""
+    """Run the compiled binary with vvp and capture the simulation log.
+
+    Args:
+        case_files: The case metadata (used for log path resolution).
+
+    Returns:
+        A SimulationResult containing the simulation pass/fail status and output log.
+        The log is also persisted to outputs/logs/.
+
+    Raises:
+        FileNotFoundError: If the compiled binary (sim.out) does not exist.
+    """
     logger.info("Running simulation for case_id=%s", case_files.case_id)
 
     tmp_dir     = (Path(tempfile.gettempdir()) / "rtl_debugger" / case_files.case_id).resolve()
@@ -132,7 +162,14 @@ async def run_simulation(case_files: CaseFiles) -> SimulationResult:
 
 @activity.defn
 async def parse_simulation_log(sim_result: SimulationResult) -> FailureSummary:
-    """Extract the primary failure from the simulation log."""
+    """Extract the primary failure from the simulation log using regex patterns.
+
+    Args:
+        sim_result: The result containing the raw simulation log string.
+
+    Returns:
+        A FailureSummary with structured data about the suspected bug (module, lines, type).
+    """
     logger.info(
         "Parsing simulation log (%d chars)", len(sim_result.simulation_log)
     )
@@ -146,7 +183,15 @@ async def parse_simulation_log(sim_result: SimulationResult) -> FailureSummary:
 
 @activity.defn
 async def build_context(args: tuple[CaseFiles, FailureSummary]) -> str:
-    """Select the relevant RTL fragments and return a compact context string."""
+    """Select the relevant RTL fragments surrounding suspected lines.
+
+    Args:
+        args: A tuple containing (CaseFiles, FailureSummary).
+
+    Returns:
+        A string containing numbered RTL source lines ±8 lines around the failures.
+        If no lines were suspected, returns the full RTL source.
+    """
     case_files, failure = args
     logger.info(
         "Building context for case_id=%s  suspected_lines=%s",
@@ -245,11 +290,25 @@ async def generate_patch(
 
 @activity.defn
 async def apply_patch(args: tuple[CaseFiles, PatchProposal]) -> None:
-    """Write the patched RTL file to outputs/patched/."""
+    """Write the patched RTL file to outputs/patched/.
+
+    Args:
+        args: A tuple containing (CaseFiles, PatchProposal).
+
+    Returns:
+        None. Side effect: creates a file in outputs/patched/<case_id>/.
+    """
     case_files, patch = args
     logger.info("Applying patch for case_id=%s", case_files.case_id)
 
     patched_source = _apply_patch(case_files, patch)
+
+    # Generate the diff and store it in the proposal so it appears in the report
+    patch.diff = unified_diff(
+        case_files.rtl_source,
+        patched_source,
+        case_files.rtl_filename,
+    )
 
     patched_dir = Path(config.outputs_dir) / "patched" / case_files.case_id
     patched_dir.mkdir(parents=True, exist_ok=True)
@@ -261,9 +320,15 @@ async def apply_patch(args: tuple[CaseFiles, PatchProposal]) -> None:
 
 @activity.defn
 async def rerun_simulation(case_files: CaseFiles) -> SimulationResult:
-    """Compile and simulate the patched file.
+    """Compile and simulate the patched RTL file to verify the fix.
 
     Uses the patched RTL from outputs/patched/ but the original testbench.
+
+    Args:
+        case_files: The original case metadata.
+
+    Returns:
+        A SimulationResult containing the rerun success status and logs.
     """
     case_id = case_files.case_id
     logger.info("Rerunning simulation with patch for case_id=%s", case_id)
@@ -310,7 +375,14 @@ async def rerun_simulation(case_files: CaseFiles) -> SimulationResult:
 
 @activity.defn
 async def save_report(report: DebugReport) -> None:
-    """Persist the DebugReport as JSON and Markdown under outputs/reports/."""
+    """Persist the final DebugReport as JSON and Markdown under outputs/reports/.
+
+    Args:
+        report: The full aggregated DebugReport object.
+
+    Returns:
+        None. Side effect: creates two files in outputs/reports/.
+    """
     logger.info("Saving report for case_id=%s", report.case_id)
 
     reports_dir = Path(config.outputs_dir) / "reports"

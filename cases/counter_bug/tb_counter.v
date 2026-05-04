@@ -44,8 +44,8 @@ module tb_counter;
         repeat (3) @(posedge clk);
         #1; // sample just after the clock edge
 
-        if (count !== 4'b0000) begin
-            $display("FAILED: expected count=0 after reset, got count=%0d", count);
+        assert (count === 4'b0000) else begin
+            $error("expected count=0 after reset, got count=%0d", count);
             errors = errors + 1;
         end
 
@@ -57,8 +57,8 @@ module tb_counter;
         end
 
         // After 8 increments from 0, count must be 8
-        if (count !== 4'd8) begin
-            $display("FAILED: expected count=8 after 8 increments, got count=%0d", count);
+        assert (count === 4'd8) else begin
+            $error("expected count=8 after 8 increments, got count=%0d", count);
             errors = errors + 1;
         end
 

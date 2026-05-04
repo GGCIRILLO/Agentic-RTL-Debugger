@@ -12,7 +12,17 @@ _WINDOW = 8  # lines of context around each suspected line
 
 
 def build_context(case_files: CaseFiles, failure: FailureSummary) -> str:
-    """Return a focused RTL snippet centred on the suspected buggy lines."""
+    """Return a focused RTL snippet centred on the suspected buggy lines.
+
+    Args:
+        case_files: The bundle containing the original RTL source code.
+        failure: The summary containing suspected line numbers.
+
+    Returns:
+        A string containing a window of lines around the suspected errors, 
+        prefixed with line numbers. If no lines are suspected or if all 
+        suspected lines are out of bounds, the full RTL source is returned.
+    """
     if not failure.suspected_lines:
         # Fallback: return the full RTL (it's a small demo file)
         return case_files.rtl_source

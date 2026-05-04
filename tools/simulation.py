@@ -34,12 +34,18 @@ async def compile_verilog(
 ) -> tuple[bool, str]:
     """Invoke iverilog to compile rtl + testbench into a simulation binary.
 
-    Returns (success, combined_log).
+    Args:
+        rtl_path: Path to the Verilog RTL source file.
+        tb_path: Path to the Verilog testbench file.
+        output_path: Path where the compiled simulation binary should be saved.
+
+    Returns:
+        A tuple of (success_boolean, combined_stdout_stderr_log).
     """
     output_path = Path(output_path)
     # Run in the directory of the output binary to keep things contained
     cwd = str(output_path.parent)
-    cmd = ["iverilog", "-o", output_path.name, str(rtl_path), str(tb_path)]
+    cmd = ["iverilog", "-g2012", "-o", output_path.name, str(rtl_path), str(tb_path)]
     
     logger.debug("Compile command: %s (cwd: %s)", " ".join(cmd), cwd)
     rc, stdout, stderr = await _run_command(cmd, cwd=cwd)
@@ -50,9 +56,13 @@ async def compile_verilog(
 async def run_vvp(binary_path: str | Path) -> tuple[bool, str]:
     """Run a compiled Verilog binary with vvp.
 
-    Returns (simulation_passed, log).
-    Simulation is considered passing when no FAILED / ERROR keyword is found
-    and the process exits with code 0.
+    Args:
+        binary_path: Path to the compiled simulation binary.
+
+    Returns:
+        A tuple of (simulation_passed_boolean, simulation_log).
+        Simulation is considered passing when no FAILED / ERROR keyword is found
+        and the process exits with code 0.
     """
     binary_path = Path(binary_path)
     # Run in the same directory as the binary so VCD files etc. are generated there

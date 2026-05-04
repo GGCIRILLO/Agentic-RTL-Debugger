@@ -5,9 +5,6 @@ Follows Temporal Python SDK >=1.7 conventions:
 - workflow.execute_activity for Activities
 - workflow.wait_condition + signal handler for human-in-the-loop
 
-Save-report calls are intentionally absent from early-exit and error paths
-until Phase 7, when save_report is fully implemented. This avoids masking
-NotImplementedError stubs with a second failure during development.
 """
 
 from __future__ import annotations
@@ -91,12 +88,24 @@ class RTLDebugWorkflow:
 
     @workflow.run
     async def run(self, case_id: str) -> dict:
+        """Execute the full RTL debug orchestration pipeline.
+
+        The pipeline includes:
+        1. Loading case files.
+        2. Compiling and simulating to confirm the bug.
+        3. Parsing logs and building RTL context.
+        4. LLM-based root cause and patch generation.
+        5. Human-in-the-loop approval gate (Signal).
+        6. Patch application and rerun verification.
+        7. Final report generation and persistence.
+
+        Args:
+            case_id: The unique identifier for the hardware debug case.
+
+        Returns:
+            A dictionary representation of the final DebugReport.
+        """
         workflow_id = workflow.info().workflow_id
-        logger.info(
-            "RTLDebugWorkflow started: case_id=%s workflow_id=%s",
-            case_id,
-            workflow_id,
-        )
 
         report = DebugReport(
             case_id=case_id,
