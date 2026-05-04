@@ -31,6 +31,9 @@ def parse_log(simulation_log: str) -> FailureSummary:
     failure_type = ""
 
     for line in lines:
+        if "$finish" in line or "$stop" in line:
+            continue
+
         for pattern in _ERROR_PATTERNS:
             if pattern.search(line):
                 raw_failure_lines.append(line)

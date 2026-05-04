@@ -27,6 +27,9 @@ def build_context(case_files: CaseFiles, failure: FailureSummary) -> str:
         for i in range(max(0, idx - _WINDOW), min(total, idx + _WINDOW + 1)):
             selected_indices.add(i)
 
+    if not selected_indices:
+        return case_files.rtl_source
+
     snippet_lines = []
     prev: int | None = None
     for i in sorted(selected_indices):
