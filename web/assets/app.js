@@ -82,17 +82,11 @@ function renderCasesGrid(list) {
     return;
   }
   grid.innerHTML = list.map(c => {
-    // Hide 'completed' badge on the dashboard so it's less noisy
-    const showBadge = c.last_status && c.last_status !== 'completed';
-    const badge    = showBadge ? badgeHtml(c.last_status) : '';
-    const passIcon = c.last_simulation_passed === true ? '\u2705'
-                   : c.last_simulation_passed === false ? '\u274c' : '';
     const files = [...(c.rtl_files || []), ...(c.tb_files || [])];
     return `
       <div class="case-card">
         <div class="case-card-header">
           <span class="case-id">${c.case_id}</span>
-          <div style="display:flex;align-items:center;gap:6px">${badge} ${passIcon}</div>
         </div>
         <div class="case-desc">${escHtml(c.description || 'No description available.')}</div>
         <div class="case-files">${files.map(f => `<span class="file-pill">${f}</span>`).join('')}</div>
@@ -505,8 +499,8 @@ function updateLiveSections(status, report, execStatus) {
       const rr = it.rerun_result;
       const rrHtml = rr ? `
         <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border)">
-          <div style="font-size:12px; color: ${rr.simulation_passed ? 'var(--green)' : 'var(--red)'}; font-weight:600; margin-bottom:6px;">
-            Rerun Result: ${rr.simulation_passed ? 'PASSED' : 'FAILED'}
+          <div style="font-size:12px; color: var(--text-secondary); font-weight:600; margin-bottom:6px;">
+            Rerun Log:
           </div>
           <pre class="code-block" style="max-height:100px;">${escHtml(stripPaths(rr.simulation_log || rr.compile_log || ''))}</pre>
         </div>

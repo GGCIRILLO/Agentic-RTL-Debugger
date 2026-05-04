@@ -57,7 +57,7 @@ def _load_case_meta(case_dir: Path) -> dict:
         "has_report": last_report is not None,
         "last_status": last_report.get("status") if last_report else None,
         "last_simulation_passed": (
-            last_report.get("rerun_result", {}).get("simulation_passed")
+            (last_report.get("rerun_result") or {}).get("simulation_passed")
             if last_report
             else None
         ),
