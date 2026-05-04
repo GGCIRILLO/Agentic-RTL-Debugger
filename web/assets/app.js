@@ -378,13 +378,6 @@ function updateStepDetails(status, report, execStatus) {
     if (report.proposed_patch) {
       items.push({ key: 'Patch status', val: report.approval_status?.replace(/_/g,' ') || 'pending', cls: '' });
     }
-
-    // Rerun result
-    if (report.rerun_result) {
-      const rr = report.rerun_result;
-      items.push({ key: 'Rerun compiled',  val: rr.compiled ? '✓ yes' : '✗ no', cls: rr.compiled ? 'ok' : 'error' });
-      items.push({ key: 'Rerun passed',    val: rr.simulation_passed ? '✓ PASSED' : '✗ FAILED', cls: rr.simulation_passed ? 'ok' : 'error' });
-    }
   }
 
   document.getElementById('step-info-grid').innerHTML = items.map(it => `
@@ -455,8 +448,12 @@ function updatePipeline(status, execStatus) {
 function updateLiveBadge(status, execStatus) {
   const el = document.getElementById('live-wf-badge');
   // If the workflow is closed, show its final execution status (completed, terminated, failed).
-  // If it's running, show the current pipeline step.
-  const displayStatus = execStatus !== 'running' ? execStatus : status;
+  // But if Temporal execution completed gracefully, yet the logical report status is failed, show failed.
+  let displayStatus = execStatus !== 'running' ? execStatus : status;
+  if (execStatus === 'completed' && status === 'failed') {
+    displayStatus = 'failed';
+  }
+  
   el.className    = 'badge ' + badgeClass(displayStatus);
   el.textContent  = displayStatus.replace(/_/g,' ');
 }
@@ -480,6 +477,8 @@ function updateLiveSections(status, report, execStatus) {
     
     document.getElementById('failure-meta').innerHTML = pills.join('');
     document.getElementById('failure-log').textContent = stripPaths(fs.raw_failure || '');
+  } else {
+    hide('section-failure');
   }
 
   /* 2. Root cause */
@@ -495,6 +494,8 @@ function updateLiveSections(status, report, execStatus) {
         <div class="conf-bar"><div class="conf-fill" style="width:${pct}%"></div></div>
       </div>
     `;
+  } else {
+    hide('section-rca');
   }
 
   /* 2.5 History */
@@ -580,17 +581,20 @@ function updateLiveSections(status, report, execStatus) {
       approvalEl.style.display = 'none';
       delete approvalEl.dataset.scrolled;
     }
+  } else {
+    hide('section-patch');
+    document.getElementById('inline-approval').style.display = 'none';
   }
 
   /* 4. Rerun result */
   if (report.rerun_result) {
     const rr = report.rerun_result;
     show('section-rerun');
-    document.getElementById('rerun-icon').textContent  = rr.simulation_passed ? '✅' : '❌';
-    document.getElementById('rerun-title').textContent = rr.simulation_passed ? 'Rerun – PASSED' : 'Rerun – FAILED';
     
     const log = rr.simulation_log || rr.compile_log || '';
     document.getElementById('rerun-log').textContent   = stripPaths(log);
+  } else {
+    hide('section-rerun');
   }
 
   /* 5. Terminated banner — show when workflow was killed mid-run */

@@ -219,12 +219,25 @@ class RTLDebugWorkflow:
             # Step 7 – LLM: patch proposal  [Phase 5]
             # ----------------------------------------------------------------
             self._status = WorkflowStatus.proposing_patch
-            patch: PatchProposal = await workflow.execute_activity(
-                generate_patch,
-                (case_files, root_cause, sim_result, prev_patch, rerun_log),
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=_DEFAULT_RETRY,
-            )
+            report.proposed_patch = None
+            report.rerun_result = None
+            report.approval_status = ApprovalStatus.pending
+            self._report = report
+            
+            try:
+                patch: PatchProposal = await workflow.execute_activity(
+                    generate_patch,
+                    (case_files, root_cause, sim_result, prev_patch, rerun_log),
+                    start_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=_DEFAULT_RETRY,
+                )
+            except Exception as e:
+                logger.error("Failed to generate patch after max retries: %s", e)
+                report.status = WorkflowStatus.failed
+                self._status = WorkflowStatus.failed
+                self._report = report
+                break
+
             report.proposed_patch = patch
             self._report = report
             self._approval = None # Reset approval for each iteration
@@ -299,4 +312,9 @@ class RTLDebugWorkflow:
             report,
             start_to_close_timeout=timedelta(seconds=30),
         )
+        
+        if report.status == WorkflowStatus.failed:
+            from temporalio.exceptions import ApplicationError
+            raise ApplicationError("Workflow failed logically after agentic debug attempts")
+            
         return report.model_dump()
