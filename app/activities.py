@@ -204,24 +204,29 @@ async def generate_root_cause(
 
 @activity.defn
 async def generate_patch(
-    args: tuple[CaseFiles, RootCauseAnalysis],
+    args: tuple[CaseFiles, RootCauseAnalysis, SimulationResult],
 ) -> PatchProposal:
-    """Ask the LLM for a minimal patch proposal.
+    """Ask the LLM for a correct patch proposal.
 
-    Calls the LLM with the patch_proposal_prompt template and parses the
-    JSON response into a PatchProposal model.
+    Receives the full CaseFiles (spec + RTL + testbench), the structured
+    root cause, and the raw SimulationResult so the LLM can reason about
+    both the intended behaviour (spec) and the exact failure messages.
 
     The same JSON robustness strategy used in generate_root_cause applies:
     malformed output raises ValueError → Temporal retries the activity.
     """
-    case_files, root_cause = args
+    case_files, root_cause, sim_result = args
     logger.info(
         "Generating patch for case_id=%s via provider=%s model=%s",
         case_files.case_id, config.llm_provider, config.llm_model,
     )
 
     client   = LLMClient()
-    messages = patch_proposal_prompt(case_files, root_cause)
+    messages = patch_proposal_prompt(
+        case_files,
+        root_cause,
+        sim_result_log=sim_result.simulation_log or "",
+    )
     data     = await client.chat(messages)
 
     patch = PatchProposal.model_validate(data)
@@ -234,7 +239,7 @@ async def generate_patch(
 
 
 # ---------------------------------------------------------------------------
-# Phase 7: Patch application & rerun  (stubs)
+# Phase 7: Patch application & rerun
 # ---------------------------------------------------------------------------
 
 

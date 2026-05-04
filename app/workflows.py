@@ -126,8 +126,6 @@ class RTLDebugWorkflow:
         )
 
         if not compile_result.compiled:
-            # Compilation failed: store what we have and surface the error.
-            # save_report is intentionally skipped until Phase 7.
             report.status = WorkflowStatus.failed
             report.failure_summary = FailureSummary(
                 raw_failure=compile_result.compile_log,
@@ -148,8 +146,6 @@ class RTLDebugWorkflow:
         )
 
         if sim_result.simulation_passed:
-            # No failures detected: nothing to debug.
-            # save_report is intentionally skipped until Phase 7.
             report.status = WorkflowStatus.completed
             report.rerun_result = sim_result
             self._report = report
@@ -192,11 +188,13 @@ class RTLDebugWorkflow:
 
         # ----------------------------------------------------------------
         # Step 7 – LLM: patch proposal  [Phase 5]
+        # Now passes sim_result so the LLM sees the exact failure messages
+        # alongside the spec and RTL source.
         # ----------------------------------------------------------------
         self._status = WorkflowStatus.proposing_patch
         patch: PatchProposal = await workflow.execute_activity(
             generate_patch,
-            (case_files, root_cause),
+            (case_files, root_cause, sim_result),
             start_to_close_timeout=timedelta(seconds=120),
             retry_policy=_DEFAULT_RETRY,
         )
