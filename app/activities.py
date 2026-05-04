@@ -278,6 +278,18 @@ async def generate_patch(
 
     patch = PatchProposal.model_validate(data)
 
+    # Pre-calculate diff and validate patch applicability
+    try:
+        patched_source = _apply_patch(case_files, patch)
+        patch.diff = unified_diff(
+            case_files.rtl_source,
+            patched_source,
+            case_files.rtl_filename,
+        )
+    except Exception as exc:
+        logger.warning("Could not apply LLM patch: %s", exc)
+        raise ValueError(f"Invalid patch proposal: {exc}")
+
     logger.info(
         "Patch proposal: explanation=%r",
         patch.explanation,

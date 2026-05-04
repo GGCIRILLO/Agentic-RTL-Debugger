@@ -73,6 +73,12 @@ class ApprovalSignal(BaseModel):
     comment: str = ""
 
 
+class DebugIteration(BaseModel):
+    patch: PatchProposal
+    approval_status: ApprovalStatus
+    rerun_result: Optional[SimulationResult] = None
+
+
 class DebugReport(BaseModel):
     """Final report persisted after workflow completes."""
 
@@ -84,6 +90,7 @@ class DebugReport(BaseModel):
     proposed_patch: Optional[PatchProposal] = None
     approval_status: ApprovalStatus = ApprovalStatus.pending
     rerun_result: Optional[SimulationResult] = None
+    history: list[DebugIteration] = Field(default_factory=list)
 
     def to_markdown(self) -> str:
         lines = [
@@ -109,6 +116,18 @@ class DebugReport(BaseModel):
                 f"{self.root_cause.explanation}",
                 "",
             ]
+        
+        for i, it in enumerate(self.history):
+            lines += [
+                f"## Iteration {i+1} (Failed)",
+                it.patch.explanation,
+                f"```diff\n{it.patch.diff}\n```",
+                f"**Approval**: {it.approval_status.value}",
+            ]
+            if it.rerun_result:
+                outcome = "✅ PASSED" if it.rerun_result.simulation_passed else "❌ FAILED"
+                lines += [f"**Rerun Result**: {outcome}", ""]
+
         if self.proposed_patch:
             lines += [
                 "## Proposed Patch",

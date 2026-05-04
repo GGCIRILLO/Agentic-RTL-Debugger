@@ -90,7 +90,19 @@ async def get_status(workflow_id: str, run_id: str | None = None):
         "TIMED_OUT": "failed", "CONTINUED_AS_NEW": "running",
     }
 
-    # 1) Try live query first (only works while workflow is RUNNING)
+    # 1) Get true execution status first
+    true_status = "failed"
+    try:
+        desc = await handle.describe()
+        tname = desc.status.name if desc.status else None
+        true_status = _TMAP.get(tname, "failed") if tname else "failed"
+        if tname == "RUNNING":
+            true_status = "running"
+    except Exception:
+        pass
+
+    # 2) Use live query for both running and closed workflows! Temporal retains history
+    # so we get the exact report for this run_id, not the last one from disk.
     try:
         status = await handle.query(RTLDebugWorkflow.get_status)
         report = await handle.query(RTLDebugWorkflow.get_report)
@@ -98,21 +110,12 @@ async def get_status(workflow_id: str, run_id: str | None = None):
             "workflow_id": workflow_id,
             "status": status,
             "report": report,
-            "execution_status": "running"
+            "execution_status": true_status
         }
     except Exception:
         pass
 
-    # 2) Workflow is closed — ask Temporal for the true terminal status
-    true_status = "failed"
-    try:
-        desc = await handle.describe()
-        tname = desc.status.name if desc.status else None
-        true_status = _TMAP.get(tname, "failed") if tname else "failed"
-    except Exception:
-        pass
-
-    # 3) Load persisted report from disk for display data
+    # 3) Workflow is closed — load persisted report from disk for display data
     from pathlib import Path
     import json as _json
     from app.config import config as _cfg
@@ -184,23 +187,35 @@ async def stream_status(workflow_id: str, run_id: str | None = None):
 
         while True:
             try:
+                desc = await handle.describe()
+                tname = desc.status.name if desc.status else None
+                is_running = tname == "RUNNING"
+                
+                # _TMAP is local to get_status, we need to redefine it or just map:
+                _TMAP = {
+                    "RUNNING": "running", "COMPLETED": "completed", "FAILED": "failed",
+                    "CANCELED": "terminated", "TERMINATED": "terminated",
+                    "TIMED_OUT": "failed", "CONTINUED_AS_NEW": "running",
+                }
+                true_status = _TMAP.get(tname, "failed") if tname else "failed"
+
                 status = await handle.query(RTLDebugWorkflow.get_status)
                 report = await handle.query(RTLDebugWorkflow.get_report)
                 report_json = json.dumps(report, sort_keys=True)
 
-                if status != prev_status or report_json != prev_report_json:
+                if status != prev_status or report_json != prev_report_json or not is_running:
                     payload = json.dumps({
                         "event": "update",
                         "workflow_id": workflow_id,
                         "status": status,
                         "report": report,
-                        "execution_status": "running"
+                        "execution_status": true_status
                     })
                     yield f"data: {payload}\n\n"
                     prev_status = status
                     prev_report_json = report_json
 
-                if status in terminal_states:
+                if not is_running:
                     yield f"data: {json.dumps({'event': 'done', 'status': status})}\n\n"
                     break
 

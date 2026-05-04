@@ -11,6 +11,11 @@ let sseSource  = null;
 const terminateConfirming = {};
 
 /* ── Init ──────────────────────────────────────────────────────────── */
+function stripPaths(str) {
+  if (!str) return '';
+  return str.replace(/(?:\/[^\s\/:]+)*\/cases\//g, '/cases/');
+}
+
 async function init() {
   await checkTemporalStatus();
   await loadDashboard();
@@ -284,6 +289,10 @@ async function refreshLiveView(wfId) {
     const res = await fetch(`${API}/api/workflows/${wfId}/status${qs}`);
     if (!res.ok) return;
     const d = await res.json();
+    
+    // Set activeIsLive properly so startSse works for newly launched workflows
+    activeIsLive = d.execution_status === 'running';
+    
     applyUpdate(d.status, d.report, d.execution_status);
   } catch {}
 }
@@ -304,9 +313,9 @@ const STEP_META = {
   awaiting_approval: { label: 'Waiting for human review', desc: 'The workflow is paused. Review the proposed patch below and approve or reject it.' },
   applying_patch:    { label: 'Applying approved patch',  desc: 'Writing the patched snippet to the RTL source file on disk.' },
   rerunning:         { label: 'Re-running simulation',    desc: 'Re-compiling and re-executing the testbench against the patched RTL to verify correctness.' },
-  completed:         { label: 'Workflow complete',         desc: 'All steps finished. The debug report has been saved to outputs/reports/.' },
-  failed:            { label: 'Workflow failed',           desc: 'An unrecoverable error was encountered. Check the error log below.' },
-  terminated:        { label: 'Workflow terminated',       desc: 'This workflow was manually stopped before it could complete.' },
+  completed:         { label: 'Workflow completed',       desc: 'The debug workflow has finished successfully.' },
+  failed:            { label: 'Workflow failed',          desc: 'The debug workflow encountered an unrecoverable error.' },
+  terminated:        { label: 'Workflow terminated',      desc: 'This workflow was manually stopped before it could complete.' },
 };
 
 /* Elapsed time helper */
@@ -402,8 +411,8 @@ function updateStepDetails(status, report, execStatus) {
     document.getElementById('step-log-label').textContent = logLabel;
     // Show last 20 lines to keep it compact
     const lines = logText.trim().split('\n');
-    document.getElementById('step-log-pre').textContent =
-      (lines.length > 20 ? `… (${lines.length - 20} lines hidden)\n` + lines.slice(-20).join('\n') : logText);
+    const displayLog = (lines.length > 20 ? `… (${lines.length - 20} lines hidden)\n` + lines.slice(-20).join('\n') : logText);
+    document.getElementById('step-log-pre').textContent = stripPaths(displayLog);
   } else {
     logRow.style.display = 'none';
   }
@@ -426,15 +435,18 @@ function applyUpdate(status, report, execStatus) {
 function updatePipeline(status, execStatus) {
   const curIdx      = STEPS.indexOf(status);
   const isBadEnd    = execStatus === 'failed' || execStatus === 'terminated';
+  const isRunning   = execStatus === 'running';
+
   document.querySelectorAll('.pipe-step').forEach(el => {
     el.classList.remove('done','active','failed');
     const idx = STEPS.indexOf(el.dataset.step);
     
     if (isBadEnd && idx === curIdx) {
       el.classList.add('failed');
-    } else if (idx < curIdx || (isBadEnd && idx <= curIdx)) {
+    } else if (idx < curIdx || (!isRunning && idx === curIdx)) {
+      // If it's closed and this is the current step, mark as done
       el.classList.add('done');
-    } else if (!isBadEnd && idx === curIdx) {
+    } else if (isRunning && idx === curIdx) {
       el.classList.add('active');
     }
   });
@@ -442,8 +454,9 @@ function updatePipeline(status, execStatus) {
 
 function updateLiveBadge(status, execStatus) {
   const el = document.getElementById('live-wf-badge');
-  // If terminated/failed, show the execution status. Otherwise show the pipeline step.
-  const displayStatus = (execStatus === 'failed' || execStatus === 'terminated') ? execStatus : status;
+  // If the workflow is closed, show its final execution status (completed, terminated, failed).
+  // If it's running, show the current pipeline step.
+  const displayStatus = execStatus !== 'running' ? execStatus : status;
   el.className    = 'badge ' + badgeClass(displayStatus);
   el.textContent  = displayStatus.replace(/_/g,' ');
 }
@@ -453,12 +466,20 @@ function updateLiveSections(status, report, execStatus) {
   if (report.failure_summary) {
     const fs = report.failure_summary;
     show('section-failure');
-    document.getElementById('failure-meta').innerHTML = [
-      `<span class="meta-pill">📁 ${escHtml(fs.suspected_module || '?')}</span>`,
-      `<span class="meta-pill">📍 Lines ${(fs.suspected_lines||[]).join(', ')||'?'}</span>`,
-      `<span class="meta-pill">🏷 ${escHtml(fs.failure_type||'?')}</span>`,
-    ].join('');
-    document.getElementById('failure-log').textContent = fs.raw_failure || '';
+    
+    const pills = [];
+    if (fs.suspected_module) {
+      pills.push(`<span class="meta-pill">📁 ${escHtml(fs.suspected_module)}</span>`);
+    }
+    if (fs.suspected_lines && fs.suspected_lines.length > 0) {
+      pills.push(`<span class="meta-pill">📍 Lines ${fs.suspected_lines.join(', ')}</span>`);
+    }
+    if (fs.failure_type) {
+      pills.push(`<span class="meta-pill">🏷 ${escHtml(fs.failure_type)}</span>`);
+    }
+    
+    document.getElementById('failure-meta').innerHTML = pills.join('');
+    document.getElementById('failure-log').textContent = stripPaths(fs.raw_failure || '');
   }
 
   /* 2. Root cause */
@@ -476,9 +497,49 @@ function updateLiveSections(status, report, execStatus) {
     `;
   }
 
+  /* 2.5 History */
+  const histEl = document.getElementById('section-history');
+  if (report.history && report.history.length > 0) {
+    histEl.innerHTML = report.history.map((it, i) => {
+      const rr = it.rerun_result;
+      const rrHtml = rr ? `
+        <div style="margin-top:12px; padding-top:12px; border-top:1px solid var(--border)">
+          <div style="font-size:12px; color: ${rr.simulation_passed ? 'var(--green)' : 'var(--red)'}; font-weight:600; margin-bottom:6px;">
+            Rerun Result: ${rr.simulation_passed ? 'PASSED' : 'FAILED'}
+          </div>
+          <pre class="code-block" style="max-height:100px;">${escHtml(stripPaths(rr.simulation_log || rr.compile_log || ''))}</pre>
+        </div>
+      ` : '';
+
+      return `
+        <div class="report-card" style="opacity: 0.85; border-left: 3px solid var(--border);">
+          <div class="card-header">
+            <span class="card-icon">🔄</span>
+            <h3>Iteration ${i + 1} (Failed)</h3>
+          </div>
+          <p class="patch-explanation">${escHtml(it.patch.explanation || '')}</p>
+          <details class="diff-details" style="margin-top:12px;">
+            <summary>View unified diff</summary>
+            <div id="hist-diff-${i}" class="code-block diff-block" style="margin-top:0;"></div>
+          </details>
+          ${rrHtml}
+        </div>
+      `;
+    }).join('');
+
+    // Render diffs safely
+    report.history.forEach((it, i) => {
+      if (it.patch && it.patch.diff) {
+        document.getElementById(`hist-diff-${i}`).innerHTML = renderDiff(it.patch.diff);
+      }
+    });
+  } else {
+    histEl.innerHTML = '';
+  }
+
   /* 3. Proposed patch */
   // Show patch section if there's a patch OR the live workflow is waiting for approval
-  if (report.proposed_patch || (status === 'awaiting_approval' && activeIsLive)) {
+  if (report.proposed_patch || (status === 'awaiting_approval' && execStatus === 'running')) {
     show('section-patch');
 
     if (report.proposed_patch) {
@@ -527,7 +588,9 @@ function updateLiveSections(status, report, execStatus) {
     show('section-rerun');
     document.getElementById('rerun-icon').textContent  = rr.simulation_passed ? '✅' : '❌';
     document.getElementById('rerun-title').textContent = rr.simulation_passed ? 'Rerun – PASSED' : 'Rerun – FAILED';
-    document.getElementById('rerun-log').textContent   = rr.simulation_log || '';
+    
+    const log = rr.simulation_log || rr.compile_log || '';
+    document.getElementById('rerun-log').textContent   = stripPaths(log);
   }
 
   /* 5. Terminated banner — show when workflow was killed mid-run */
