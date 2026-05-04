@@ -6,7 +6,7 @@ Anthropic messages are structurally identical (role / content).
 
 from __future__ import annotations
 
-from app.models import CaseFiles, FailureSummary, RootCauseAnalysis
+from app.models import CaseFiles, FailureSummary, RootCauseAnalysis, PatchProposal
 
 
 def root_cause_prompt(
@@ -92,6 +92,8 @@ def patch_proposal_prompt(
     case_files: CaseFiles,
     root_cause: RootCauseAnalysis,
     sim_result_log: str = "",
+    previous_patch: PatchProposal | None = None,
+    rerun_log: str = "",
 ) -> list[dict]:
     """Build the patch-proposal prompt.
 
@@ -125,10 +127,23 @@ def patch_proposal_prompt(
 Summary: {root_cause.summary}
 Suspected lines: {root_cause.suspected_lines}
 Explanation: {root_cause.explanation}
+"""
+    if previous_patch and rerun_log:
+        user += f"""
+## Previous Attempt Failed
+You previously proposed this patch:
+```diff
+{previous_patch.diff}
+```
+But it FAILED the verification rerun with this log:
+{rerun_log}
 
-Remember the patching rules above.
-Respond ONLY with valid JSON matching the schema: \
-original_snippet, patched_snippet, explanation, diff."""
+CRITICAL INSTRUCTION: Your previous patch was WRONG. You MUST change your approach. 
+DO NOT propose the exact same patch again. If you previously tried deleting a block and it failed, you must instead REWRITE or MERGE the logic correctly. 
+Please try again and provide a CORRECTED patch.
+"""
+
+    user += "\nRemember the patching rules above.\nRespond ONLY with valid JSON matching the schema: original_snippet, patched_snippet, explanation, diff."
 
     return [
         {"role": "system", "content": _PATCH_SYSTEM},

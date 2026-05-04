@@ -196,63 +196,83 @@ class RTLDebugWorkflow:
         report.root_cause = root_cause
 
         # ----------------------------------------------------------------
-        # Step 7 – LLM: patch proposal  [Phase 5]
-        # Now passes sim_result so the LLM sees the exact failure messages
-        # alongside the spec and RTL source.
+        # Phase 8: Agentic Retry Loop
         # ----------------------------------------------------------------
-        self._status = WorkflowStatus.proposing_patch
-        patch: PatchProposal = await workflow.execute_activity(
-            generate_patch,
-            (case_files, root_cause, sim_result),
-            start_to_close_timeout=timedelta(seconds=120),
-            retry_policy=_DEFAULT_RETRY,
-        )
-        report.proposed_patch = patch
+        prev_patch: PatchProposal | None = None
+        rerun_log: str = ""
+        max_iterations = 3
 
-        # ----------------------------------------------------------------
-        # Step 8 – Wait for human approval (Signal)
-        # ----------------------------------------------------------------
-        self._status = WorkflowStatus.awaiting_approval
-        logger.info("Workflow paused, waiting for approval signal (timeout: 24 h)")
+        for iteration in range(max_iterations):
+            # ----------------------------------------------------------------
+            # Step 7 – LLM: patch proposal  [Phase 5]
+            # ----------------------------------------------------------------
+            self._status = WorkflowStatus.proposing_patch
+            patch: PatchProposal = await workflow.execute_activity(
+                generate_patch,
+                (case_files, root_cause, sim_result, prev_patch, rerun_log),
+                start_to_close_timeout=timedelta(seconds=120),
+                retry_policy=_DEFAULT_RETRY,
+            )
+            report.proposed_patch = patch
+            self._approval = None # Reset approval for each iteration
 
-        await workflow.wait_condition(
-            lambda: self._approval is not None,
-            timeout=timedelta(hours=24),
-        )
+            # ----------------------------------------------------------------
+            # Step 8 – Wait for human approval (Signal)
+            # ----------------------------------------------------------------
+            self._status = WorkflowStatus.awaiting_approval
+            logger.info("Workflow paused, waiting for approval signal (timeout: 24 h)")
 
-        if self._approval is None or self._approval.decision == ApprovalStatus.rejected:
-            report.approval_status = ApprovalStatus.rejected
-            report.status = WorkflowStatus.completed
+            await workflow.wait_condition(
+                lambda: self._approval is not None,
+                timeout=timedelta(hours=24),
+            )
+
+            if self._approval is None or self._approval.decision == ApprovalStatus.rejected:
+                report.approval_status = ApprovalStatus.rejected
+                report.status = WorkflowStatus.completed
+                self._report = report
+                logger.info("Patch rejected or timed out for case_id=%s.", case_id)
+                return report.model_dump()
+
+            report.approval_status = ApprovalStatus.approved
+
+            # ----------------------------------------------------------------
+            # Step 9 – Apply patch  [Phase 7]
+            # ----------------------------------------------------------------
+            self._status = WorkflowStatus.applying_patch
+            await workflow.execute_activity(
+                apply_patch,
+                (case_files, patch),
+                start_to_close_timeout=timedelta(seconds=30),
+                retry_policy=_DEFAULT_RETRY,
+            )
+
+            # ----------------------------------------------------------------
+            # Step 10 – Rerun simulation on patched file  [Phase 7]
+            # ----------------------------------------------------------------
+            self._status = WorkflowStatus.rerunning
+            rerun: SimulationResult = await workflow.execute_activity(
+                rerun_simulation,
+                case_files,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=_DEFAULT_RETRY,
+            )
+            report.rerun_result = rerun
             self._report = report
-            logger.info("Patch rejected or timed out for case_id=%s.", case_id)
-            return report.model_dump()
 
-        report.approval_status = ApprovalStatus.approved
-
-        # ----------------------------------------------------------------
-        # Step 9 – Apply patch  [Phase 7]
-        # ----------------------------------------------------------------
-        self._status = WorkflowStatus.applying_patch
-        await workflow.execute_activity(
-            apply_patch,
-            (case_files, patch),
-            start_to_close_timeout=timedelta(seconds=30),
-            retry_policy=_DEFAULT_RETRY,
-        )
-
-        # ----------------------------------------------------------------
-        # Step 10 – Rerun simulation on patched file  [Phase 7]
-        # ----------------------------------------------------------------
-        self._status = WorkflowStatus.rerunning
-        rerun: SimulationResult = await workflow.execute_activity(
-            rerun_simulation,
-            case_files,
-            start_to_close_timeout=timedelta(seconds=60),
-            retry_policy=_DEFAULT_RETRY,
-        )
-        report.rerun_result = rerun
-        report.status = WorkflowStatus.completed
-        self._report = report
+            if rerun.simulation_passed:
+                report.status = WorkflowStatus.completed
+                logger.info("Patch successful on iteration %d", iteration + 1)
+                break
+            else:
+                logger.warning("Patch failed rerun on iteration %d", iteration + 1)
+                prev_patch = patch
+                rerun_log = rerun.simulation_log or "Unknown rerun failure"
+                # The loop will naturally retry up to max_iterations
+        else:
+            # Reached max iterations without passing
+            report.status = WorkflowStatus.failed
+            logger.error("Failed to find a working patch after %d iterations", max_iterations)
 
         # ----------------------------------------------------------------
         # Step 11 – Save final report  [Phase 7]

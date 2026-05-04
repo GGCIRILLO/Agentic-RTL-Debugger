@@ -249,7 +249,7 @@ async def generate_root_cause(
 
 @activity.defn
 async def generate_patch(
-    args: tuple[CaseFiles, RootCauseAnalysis, SimulationResult],
+    args: tuple[CaseFiles, RootCauseAnalysis, SimulationResult, PatchProposal | None, str],
 ) -> PatchProposal:
     """Ask the LLM for a correct patch proposal.
 
@@ -260,7 +260,7 @@ async def generate_patch(
     The same JSON robustness strategy used in generate_root_cause applies:
     malformed output raises ValueError → Temporal retries the activity.
     """
-    case_files, root_cause, sim_result = args
+    case_files, root_cause, sim_result, prev_patch, rerun_log = args
     logger.info(
         "Generating patch for case_id=%s via provider=%s model=%s",
         case_files.case_id, config.llm_provider, config.llm_model,
@@ -271,6 +271,8 @@ async def generate_patch(
         case_files,
         root_cause,
         sim_result_log=sim_result.simulation_log or "",
+        previous_patch=prev_patch,
+        rerun_log=rerun_log,
     )
     data     = await client.chat(messages)
 
