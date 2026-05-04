@@ -1,6 +1,6 @@
 """Temporal Activities for RTLDebugWorkflow.
 
-All I/O, subprocess calls, and LLM calls live here – never in the Workflow.
+All I/O, subprocess calls, and LLM calls live here and never in the Workflow.
 Each activity is a plain async function decorated with @activity.defn.
 
 At this stage (Phase 2) the bodies are stubs that will be filled in

@@ -34,7 +34,7 @@ async def main(case_id: str, workflow_id: str) -> None:
     )
 
     logger.info(
-        "Workflow started – workflow_id=%s  run_id=%s",
+        "Workflow started: workflow_id=%s  run_id=%s",
         handle.id,
         handle.first_execution_run_id,
     )

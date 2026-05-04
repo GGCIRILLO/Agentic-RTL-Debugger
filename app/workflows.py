@@ -1,4 +1,4 @@
-"""RTLDebugWorkflow – main Temporal workflow.
+"""RTLDebugWorkflow -> main Temporal workflow.
 
 Follows Temporal Python SDK >=1.7 conventions:
 - @workflow.defn / @workflow.run
@@ -93,7 +93,7 @@ class RTLDebugWorkflow:
     @workflow.run
     async def run(self, case_id: str) -> dict:
         workflow_id = workflow.info().workflow_id
-        logger.info("RTLDebugWorkflow started – case_id=%s workflow_id=%s", case_id, workflow_id)
+        logger.info("RTLDebugWorkflow started: case_id=%s workflow_id=%s", case_id, workflow_id)
 
         report = DebugReport(
             case_id=case_id,
@@ -208,7 +208,7 @@ class RTLDebugWorkflow:
             # Step 8 – Wait for human approval (Signal)
             # ----------------------------------------------------------------
             self._status = WorkflowStatus.awaiting_approval
-            logger.info("Workflow paused – waiting for approval signal")
+            logger.info("Workflow paused, waiting for approval signal")
 
             # Wait up to 24 h for a human decision
             await workflow.wait_condition(
