@@ -17,7 +17,7 @@ from temporalio.common import RetryPolicy
 
 # Import activities (referenced by name at registration time to avoid
 # importing non-deterministic I/O code inside the workflow sandbox).
-with workflow.unsafe.imports_not_sandboxed():
+with workflow.unsafe.imports_passed_through():
     from app.models import (
         ApprovalSignal,
         ApprovalStatus,
