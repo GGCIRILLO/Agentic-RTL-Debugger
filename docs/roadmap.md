@@ -2,56 +2,48 @@
 
 ## Current state
 
-The repository already includes the base project structure together with a working Temporal skeleton for the main workflow, worker startup, workflow starter, and approval signaling.
+The current milestone achieved is: **Phase 3 — first executable hardware case**.
 
-The current milestone achieved is: **Phase 2 — minimal Temporal workflow skeleton**.
+Phases 1, 2 and 3 are complete. The workflow can now load a real Verilog case, compile it with Icarus Verilog, run the simulation, and save the logs to disk. The next step is to parse the failure output and extract structured context for the LLM.
 
 ## Phase 1 — Environment and project setup
 
 ### Status
-Partially completed.
+Complete.
 
 ### Done
 - Repository created.
 - Base folder structure created.
 - `requirements.txt` and `.env.example` added.
 - Runtime scripts for worker, starter, and signal added.
-
-### Remaining
-- Verify local Temporal server setup end-to-end.
-- Verify Python environment and dependency installation on the target machine.
-- Install and validate Icarus Verilog locally (`iverilog`, `vvp`). 
+- Icarus Verilog installed and validated locally (`iverilog`, `vvp`).
+- Temporal local dev server validated end-to-end.
 
 ## Phase 2 — Minimal Temporal workflow
 
 ### Status
-Completed as project skeleton.
+Complete.
 
 ### Done
 - `RTLDebugWorkflow` implemented with `@workflow.defn` and `@workflow.run`.
-- Signal handler for approval added.
+- Signal handler for patch approval added.
 - Query handlers for workflow inspection added.
 - Worker registration implemented in `run_worker.py`.
 - Workflow start logic implemented in `run_starter.py`.
 - Approval signal sender implemented in `run_signal.py`.
-
-### Remaining
-- Run the full skeleton against a live Temporal local instance and validate the event history in Temporal Web UI.
+- Skeleton validated against live Temporal dev server.
 
 ## Phase 3 — First executable hardware case
 
 ### Status
-Not started.
+Complete.
 
-### Goals
-- Create `cases/counter_bug/`.
-- Implement `load_case_files`.
-- Implement `run_compile`.
-- Implement `run_simulation`.
-- Save compile and simulation logs to `outputs/logs/`. 
-
-### Deliverable
-A reproducible failing Verilog test case that can be launched through the Temporal workflow.
+### Done
+- `cases/counter_bug/` created with `spec.md`, `counter.v`, `tb_counter.v`, `expected.md`.
+- `load_case_files` implemented: reads spec, RTL, and testbench from disk.
+- `run_compile` implemented: invokes `iverilog`, saves compile log to `outputs/logs/`.
+- `run_simulation` implemented: invokes `vvp`, saves simulation log to `outputs/logs/`.
+- Bug is reproducible: testbench prints `FAILED` on every run against `counter.v`.
 
 ## Phase 4 — Failure parsing and context extraction
 
@@ -59,12 +51,12 @@ A reproducible failing Verilog test case that can be launched through the Tempor
 Not started.
 
 ### Goals
-- Implement `parse_simulation_log` using the existing parser utilities.
-- Implement `build_context` using the existing context builder.
+- Implement `parse_simulation_log` using the existing parser utilities in `app/log_parser.py`.
+- Implement `build_context` using the existing context builder in `app/context_builder.py`.
 - Produce structured `FailureSummary` objects from real simulation output.
 
 ### Deliverable
-The workflow can move from raw failure logs to structured, minimal diagnostic context.
+The workflow advances from raw failure logs to structured, minimal diagnostic context ready for the LLM.
 
 ## Phase 5 — LLM integration
 
@@ -72,13 +64,13 @@ The workflow can move from raw failure logs to structured, minimal diagnostic co
 Not started.
 
 ### Goals
-- Implement `llm_client.py` wiring in activities.
+- Wire `app/llm_client.py` into the activities.
 - Implement `generate_root_cause`.
-- Implement `generate_patch`.   
-- Keep outputs structured and Pydantic-validated.
+- Implement `generate_patch`.
+- Keep all LLM outputs Pydantic-validated.
 
 ### Notes
-The choice between remote APIs and a local model is intentionally deferred to a later stage because it is not needed to validate the Temporal workflow shape first.
+The choice between remote APIs and a local model (e.g. Ollama) is intentionally deferred. The Temporal workflow shape is independent of the LLM backend.
 
 ## Phase 6 — Human approval loop
 
@@ -101,10 +93,10 @@ Not started.
 - Implement `apply_patch`.
 - Implement `rerun_simulation`.
 - Implement `save_report`.
-- Save JSON and Markdown reports under `outputs/reports/`. [file:1]
+- Save JSON and Markdown reports under `outputs/reports/`.
 
 ### Deliverable
-A complete before/after debug run with approval status and rerun outcome.
+A complete before/after debug run: original failure, LLM diagnosis, proposed patch, human approval, rerun outcome.
 
 ## Phase 8 — Demo polish
 
@@ -113,10 +105,9 @@ Not started.
 
 ### Goals
 - Add at least one extra bug case beyond `counter_bug`.
-- Improve README.
-- Add architecture notes and demo instructions.
-- Prepare a short 2–3 minute live walkthrough.
+- Update README with full setup and demo instructions.
+- Prepare a short 2–3 minute live walkthrough script.
 
 ## Suggested immediate next step
 
-The highest-value next implementation step is **Phase 3**, because it turns the current skeleton into a workflow that can execute real hardware toolchain steps and produce real artifacts.
+Phase 4: implement `parse_simulation_log` and `build_context` so the workflow can produce a structured `FailureSummary` from the real simulation logs already saved to disk.
