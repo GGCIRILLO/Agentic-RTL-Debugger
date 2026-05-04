@@ -7,7 +7,7 @@ Implementation status:
   Phase 3 — DONE : load_case_files, run_compile, run_simulation
   Phase 4 — DONE : parse_simulation_log, build_context
   Phase 5 — DONE : generate_root_cause, generate_patch
-  Phase 7 — stub : apply_patch, rerun_simulation, save_report
+  Phase 7 — DONE : apply_patch, rerun_simulation, save_report
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from app.models import (
     RootCauseAnalysis,
     SimulationResult,
 )
+from app.patcher import apply_patch as _apply_patch
 from app.prompts import patch_proposal_prompt, root_cause_prompt
 from tools.file_reader import load_case
 from tools.simulation import compile_verilog, run_vvp
@@ -240,16 +241,82 @@ async def generate_patch(
 @activity.defn
 async def apply_patch(args: tuple[CaseFiles, PatchProposal]) -> None:
     """Write the patched RTL file to outputs/patched/."""
-    raise NotImplementedError("apply_patch — implement in Phase 7")
+    case_files, patch = args
+    logger.info("Applying patch for case_id=%s", case_files.case_id)
+
+    patched_source = _apply_patch(case_files, patch)
+
+    patched_dir = Path(config.outputs_dir) / "patched" / case_files.case_id
+    patched_dir.mkdir(parents=True, exist_ok=True)
+    patched_file = patched_dir / case_files.rtl_filename
+
+    patched_file.write_text(patched_source)
+    logger.info("Patched RTL saved to %s", patched_file)
 
 
 @activity.defn
 async def rerun_simulation(case_files: CaseFiles) -> SimulationResult:
-    """Compile and simulate the patched file."""
-    raise NotImplementedError("rerun_simulation — implement in Phase 7")
+    """Compile and simulate the patched file.
+
+    Uses the patched RTL from outputs/patched/ but the original testbench.
+    """
+    case_id = case_files.case_id
+    logger.info("Rerunning simulation with patch for case_id=%s", case_id)
+
+    # Paths
+    patched_dir  = Path(config.outputs_dir) / "patched" / case_id
+    rtl_path     = patched_dir / case_files.rtl_filename
+    tb_path      = Path(config.cases_dir) / case_id / case_files.tb_filename
+
+    if not rtl_path.exists():
+        raise FileNotFoundError(f"Patched RTL not found at {rtl_path}")
+
+    # Binary path
+    tmp_dir = Path(tempfile.gettempdir()) / "rtl_debugger" / case_id / "patched"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    binary_path = tmp_dir / "sim.out"
+
+    # Compile
+    success, compile_log = await compile_verilog(rtl_path, tb_path, binary_path)
+    log_file_c = _log_path(case_id, "patch_compile")
+    log_file_c.write_text(compile_log)
+
+    if not success:
+        logger.warning("Rerun: compilation FAILED for case_id=%s", case_id)
+        return SimulationResult(compiled=False, compile_log=compile_log)
+
+    # Simulate
+    sim_passed, sim_log = await run_vvp(binary_path)
+    log_file_s = _log_path(case_id, "patch_simulation")
+    log_file_s.write_text(sim_log)
+
+    if sim_passed:
+        logger.info("Rerun: simulation PASSED for case_id=%s", case_id)
+    else:
+        logger.warning("Rerun: simulation FAILED for case_id=%s", case_id)
+
+    return SimulationResult(
+        compiled=True,
+        simulation_passed=sim_passed,
+        simulation_log=sim_log,
+        log_path=str(log_file_s),
+    )
 
 
 @activity.defn
 async def save_report(report: DebugReport) -> None:
     """Persist the DebugReport as JSON and Markdown under outputs/reports/."""
-    raise NotImplementedError("save_report — implement in Phase 7")
+    logger.info("Saving report for case_id=%s", report.case_id)
+
+    reports_dir = Path(config.outputs_dir) / "reports"
+    reports_dir.mkdir(parents=True, exist_ok=True)
+
+    # JSON
+    json_path = reports_dir / f"{report.case_id}_report.json"
+    json_path.write_text(report.model_dump_json(indent=2))
+
+    # Markdown
+    md_path = reports_dir / f"{report.case_id}_report.md"
+    md_path.write_text(report.to_markdown())
+
+    logger.info("Reports saved to %s and %s", json_path, md_path)
