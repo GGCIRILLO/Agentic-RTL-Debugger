@@ -13,11 +13,11 @@ FAILED: expected count=0 after reset, got count=<non-zero value>
 
 ## Root cause
 
-The `always` block increments `count` unconditionally on every rising
-edge and then overwrites it to `0` only if `rst` is high. Because both
-assignments are non-blocking, Verilog schedules them in declaration
-order: the increment wins on the same edge as reset, so the counter
-never reaches `0` while `rst` is asserted.
+The `always` block checks `rst` and assigns `0`, but then unconditionally
+increments `count` on every rising edge. Because both assignments are
+non-blocking, the last assignment executed wins. The increment is executed
+last, so it overrides the reset, and the counter never correctly resets
+while `rst` is asserted.
 
 ## Minimal correct fix
 

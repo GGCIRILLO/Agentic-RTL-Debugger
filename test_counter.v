@@ -1,7 +1,3 @@
-// 4-bit synchronous counter
-
-`timescale 1ns/1ps
-
 module counter (
     input  wire       clk,
     input  wire       rst,
