@@ -10,3 +10,8 @@ python-dotenv>=1.0.0
 
 # Utilities
 pydantic>=2.7.0
+
+# Web UI server
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+sse-starlette>=2.0.0
