@@ -11,11 +11,11 @@ from app.models import FailureSummary
 
 # Patterns covering common VCD/vvp failure formats
 _ERROR_PATTERNS = [
-    re.compile(r"ERROR:?\s*(?P<msg>.+)", re.IGNORECASE),
-    re.compile(r"ASSERTION FAILED:?\s*(?P<msg>.+)", re.IGNORECASE),
-    re.compile(r"MISMATCH:?\s*(?P<msg>.+)", re.IGNORECASE),
-    re.compile(r"(?P<msg>Expected .+, got .+)", re.IGNORECASE),
-    re.compile(r"FAILED:?\s*(?P<msg>.+)", re.IGNORECASE),
+    (re.compile(r"ERROR:?\s*(?P<msg>.+)", re.IGNORECASE), "ERROR"),
+    (re.compile(r"ASSERTION FAILED:?\s*(?P<msg>.+)", re.IGNORECASE), "ASSERTION FAILED"),
+    (re.compile(r"MISMATCH:?\s*(?P<msg>.+)", re.IGNORECASE), "MISMATCH"),
+    (re.compile(r"FAILED:?\s*(?P<msg>.+)", re.IGNORECASE), "FAILED"),
+    (re.compile(r"(?P<msg>Expected .+, got .+)", re.IGNORECASE), "EXPECTED_GOT_MISMATCH"),
 ]
 
 _FILE_LINE_RE = re.compile(r"(?P<file>[\w./]+\.v):(?P<line>\d+)")
@@ -34,11 +34,11 @@ def parse_log(simulation_log: str) -> FailureSummary:
         if "$finish" in line or "$stop" in line:
             continue
 
-        for pattern in _ERROR_PATTERNS:
+        for pattern, ftype in _ERROR_PATTERNS:
             if pattern.search(line):
                 raw_failure_lines.append(line)
                 if not failure_type:
-                    failure_type = pattern.pattern.split(":")[0].strip()
+                    failure_type = ftype
 
         m = _FILE_LINE_RE.search(line)
         if m:

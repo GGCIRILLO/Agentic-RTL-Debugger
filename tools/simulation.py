@@ -36,9 +36,13 @@ async def compile_verilog(
 
     Returns (success, combined_log).
     """
-    cmd = ["iverilog", "-o", str(output_path), str(rtl_path), str(tb_path)]
-    logger.debug("Compile command: %s", " ".join(cmd))
-    rc, stdout, stderr = await _run_command(cmd)
+    output_path = Path(output_path)
+    # Run in the directory of the output binary to keep things contained
+    cwd = str(output_path.parent)
+    cmd = ["iverilog", "-o", output_path.name, str(rtl_path), str(tb_path)]
+    
+    logger.debug("Compile command: %s (cwd: %s)", " ".join(cmd), cwd)
+    rc, stdout, stderr = await _run_command(cmd, cwd=cwd)
     log = (stdout + stderr).strip()
     return rc == 0, log
 
@@ -50,9 +54,13 @@ async def run_vvp(binary_path: str | Path) -> tuple[bool, str]:
     Simulation is considered passing when no FAILED / ERROR keyword is found
     and the process exits with code 0.
     """
-    cmd = ["vvp", str(binary_path)]
-    logger.debug("Simulation command: %s", " ".join(cmd))
-    rc, stdout, stderr = await _run_command(cmd)
+    binary_path = Path(binary_path)
+    # Run in the same directory as the binary so VCD files etc. are generated there
+    cwd = str(binary_path.parent)
+    cmd = ["vvp", binary_path.name]
+    
+    logger.debug("Simulation command: %s (cwd: %s)", " ".join(cmd), cwd)
+    rc, stdout, stderr = await _run_command(cmd, cwd=cwd)
     log = (stdout + stderr).strip()
 
     failed_keywords = ["FAILED", "ERROR", "MISMATCH", "ASSERTION"]
