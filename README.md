@@ -4,8 +4,6 @@
 ![Temporal](https://img.shields.io/badge/Temporal-Workflow-black?logo=temporal&logoColor=white)
 ![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-gray?logo=ollama&logoColor=white)
 ![Icarus Verilog](https://img.shields.io/badge/Icarus%20Verilog-RTL%20Sim-purple)
-![License](https://img.shields.io/github/license/GGCIRILLO/Agentic-RTL-Debugger)
-![Last Commit](https://img.shields.io/github/last-commit/GGCIRILLO/Agentic-RTL-Debugger)
 
 > An agentic AI workflow for hardware verification — built to explore **Temporal durable workflows**, **LLM-powered debugging agents**, and **local Ollama models**.
 
@@ -46,7 +44,7 @@ The whole pipeline is backed by **Temporal.io**, which makes every step durable 
 
 ![Approval gate screenshot](docs/images/approval-gate.png)
 
-### Agentic Loop
+### LLM Debugging Loop
 
 ![Agentic loop screenshot](docs/images/agentic-loop.png)
 
@@ -188,6 +186,7 @@ python run_api.py
 ```
 
 Open **http://localhost:8000** in your browser to use the web UI.
+
 > 💡 Tip: the Temporal UI is also available at **http://localhost:8233** — useful for monitoring workflow execution state directly.
 
 ### Terminal 4 — Start a workflow (CLI or web UI)
@@ -221,6 +220,8 @@ Each case lives under `cases/<case_id>/` and contains:
 - `<module>.v` — intentionally buggy RTL source
 - `tb_<module>.v` — testbench that exposes the bug
 - `spec.md` — human-readable specification
+
+> Note: these bugs are intentionally introduced and are pretty basic but useful for testing purposes.
 
 ---
 
