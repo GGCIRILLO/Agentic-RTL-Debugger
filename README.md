@@ -49,40 +49,34 @@ The whole pipeline is backed by **Temporal.io**, which makes every step durable 
 
 ## Architecture overview
 
-```
-┌──────────────┐      HTTP / SSE      ┌───────────────────────┐
-│   Browser    │ ◄──────────────────► │  FastAPI  (run_api.py) │
-│   (web/)     │                      │  app/api/             │
-└──────────────┘                      └──────────┬────────────┘
-                                                 │ Temporal SDK
-                                                 ▼
-                                      ┌──────────────────────┐
-                                      │   Temporal Server    │
-                                      │   (localhost:7233)   │
-                                      └──────────┬───────────┘
-                                                 │
-                                      ┌──────────▼───────────┐
-                                      │  Temporal Worker     │
-                                      │  (run_worker.py)     │
-                                      │                      │
-                                      │  RTLDebugWorkflow    │
-                                      │  ├─ load_case_files  │
-                                      │  ├─ run_compile      │
-                                      │  ├─ run_simulation   │
-                                      │  ├─ parse_log        │
-                                      │  ├─ build_context    │
-                                      │  ├─ generate_rca     │
-                                      │  ├─ generate_patch   │
-                                      │  ├─ [approval gate]  │
-                                      │  ├─ apply_patch      │
-                                      │  ├─ rerun_simulation │
-                                      │  └─ save_report      │
-                                      └──────────┬───────────┘
-                                                 │
-                                      ┌──────────▼───────────┐
-                                      │   Ollama / OpenAI /  │
-                                      │   Anthropic  (LLM)   │
-                                      └──────────────────────┘
+```mermaid
+graph TD
+    Browser["🌐 Browser\n(web/)"]
+    API["⚙️ FastAPI\nrun_api.py\napp/api/"]
+    Temporal["🕐 Temporal Server\nlocalhost:7233"]
+
+    subgraph Worker["Temporal Worker — run_worker.py"]
+        WF["RTLDebugWorkflow"]
+        A1["load_case_files"]
+        A2["run_compile"]
+        A3["run_simulation"]
+        A4["parse_log"]
+        A5["build_context"]
+        A6["generate_rca"]
+        A7["generate_patch"]
+        GATE["⏸ approval gate"]
+        A8["apply_patch"]
+        A9["rerun_simulation"]
+        A10["save_report"]
+        WF --> A1 --> A2 --> A3 --> A4 --> A5 --> A6 --> A7 --> GATE --> A8 --> A9 --> A10
+    end
+
+    LLM["🤖 LLM\nOllama / OpenAI / Anthropic"]
+
+    Browser <-->|"HTTP / SSE"| API
+    API <-->|"Temporal SDK"| Temporal
+    Temporal <-->|"task queue"| Worker
+    A6 & A7 -->|"LLM API"| LLM
 ```
 
 See [`docs/architecture.md`](docs/architecture.md) for the detailed Temporal workflow architecture and [`docs/web-architecture.md`](docs/web-architecture.md) for the web / API layer.
