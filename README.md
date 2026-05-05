@@ -32,6 +32,11 @@ The whole pipeline is backed by **Temporal.io**, which makes every step durable 
 
 ## Showcase
 
+![Demo](docs/images/demo.gif)
+
+<details>
+<summary>Screenshots</summary>
+
 ### Dashboard — case selection
 
 ![Dashboard screenshot](docs/images/dashboard.png)
@@ -46,7 +51,9 @@ The whole pipeline is backed by **Temporal.io**, which makes every step durable 
 
 ### LLM Debugging Loop
 
-![Agentic loop screenshot](docs/images/agentic-loop.png)
+![LLM debugging loop screenshot](docs/images/agentic-loop.png)
+
+</details>
 
 ---
 
