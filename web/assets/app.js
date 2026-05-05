@@ -653,6 +653,26 @@ function renderDiff(raw) {
   }).join('\n');
 }
 
+/* Extract original (pre-patch) code from a unified diff and return highlighted HTML. */
+function extractOriginalFromDiff(diff) {
+  if (!diff) return '';
+  const code = diff.split('\n')
+    .filter(l => (l.startsWith(' ') || l.startsWith('-')) && !l.startsWith('---'))
+    .map(l => l.slice(1))
+    .join('\n');
+  return highlightVerilog(code);
+}
+
+/* Extract patched (post-patch) code from a unified diff and return highlighted HTML. */
+function extractPatchedFromDiff(diff) {
+  if (!diff) return '';
+  const code = diff.split('\n')
+    .filter(l => (l.startsWith(' ') || l.startsWith('+')) && !l.startsWith('+++'))
+    .map(l => l.slice(1))
+    .join('\n');
+  return highlightVerilog(code);
+}
+
 /* ── Badge helpers ─────────────────────────────────────────────────── */
 function badgeClass(s) {
   const m = {
