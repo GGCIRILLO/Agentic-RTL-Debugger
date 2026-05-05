@@ -14,6 +14,5 @@ def unified_diff(original: str, patched: str, filename: str = "module.v") -> str
         b_lines,
         fromfile=f"a/{filename}",
         tofile=f"b/{filename}",
-        lineterm="",
     )
     return "".join(diff)
