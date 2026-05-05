@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agentic RTL Debugger</title>
+  <meta name="description" content="AI-powered RTL debugging — launch, monitor and approve patches in real-time." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/style.css?v=2" />
+</head>
+<body>
+
+  <!-- ── Sidebar ────────────────────────────────────────────────────── -->
+  <aside id="sidebar">
+    <div class="logo">
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+        <rect width="28" height="28" rx="8" fill="url(#lg)"/>
+        <path d="M7 14h4l2-6 4 12 2-6h2" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+            <stop stop-color="#6366f1"/><stop offset="1" stop-color="#8b5cf6"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <span>RTL Debugger</span>
+    </div>
+
+    <nav>
+      <button class="nav-item active" data-view="dashboard" id="nav-dashboard">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM14 11a1 1 0 011 1v1h1a1 1 0 110 2h-1v1a1 1 0 11-2 0v-1h-1a1 1 0 110-2h1v-1a1 1 0 011-1z"/></svg>
+        Dashboard
+      </button>
+      <button class="nav-item" data-view="live" id="nav-live" style="display:none">
+        <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clip-rule="evenodd"/></svg>
+        <span id="nav-live-label">Live Run</span>
+        <span class="live-dot" id="live-nav-dot" style="display:none"></span>
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="status-dot" id="temporal-dot"></span>
+      <span id="temporal-status-text">Connecting…</span>
+    </div>
+  </aside>
+
+  <!-- ── Main ───────────────────────────────────────────────────────── -->
+  <main id="main">
+
+    <!-- ═══════════════════════════ DASHBOARD ═══════════════════════════ -->
+    <section id="view-dashboard" class="view active">
+
+      <div class="page-header">
+        <div>
+          <h1>Cases</h1>
+          <p class="subtitle">Select a case to launch the debug pipeline</p>
+        </div>
+      </div>
+
+      <div id="cases-grid" class="cases-grid">
+        <div class="empty-state"><div class="spinner"></div> Loading cases…</div>
+      </div>
+
+      <div class="section-divider"><span>Recent Workflows</span></div>
+
+      <div class="panel">
+        <div id="runs-table-container">
+          <div class="empty-state" id="runs-empty">No workflows yet — run a case above.</div>
+          <table class="runs-table" id="runs-table" style="display:none">
+            <thead><tr>
+              <th>Case</th><th>Workflow ID</th><th>Status</th><th>Started</th><th>Actions</th>
+            </tr></thead>
+            <tbody id="runs-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════════════════════════ LIVE RUN ════════════════════════════ -->
+    <section id="view-live" class="view">
+
+      <!-- Header -->
+      <div class="page-header">
+        <div style="display:flex;align-items:center;gap:12px">
+          <button class="btn-back" onclick="goToDashboard()">← Back</button>
+          <div>
+            <h1 id="live-wf-title" style="font-size:17px">Workflow</h1>
+            <p class="subtitle" id="live-wf-subtitle"></p>
+          </div>
+        </div>
+        <span class="badge badge-default" id="live-wf-badge">—</span>
+      </div>
+
+      <!-- Pipeline -->
+      <div class="panel pipeline-wrap">
+        <div class="pipeline" id="pipeline">
+          <div class="pipe-step" data-step="started">Load</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="simulating">Simulate</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="parsing">Parse</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="analyzing">Analyze</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="proposing_patch">Patch</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="awaiting_approval">Review</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="applying_patch">Apply</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="rerunning">Verify</div>
+          <div class="pipe-sep"></div>
+          <div class="pipe-step" data-step="completed">Done</div>
+        </div>
+      </div>
+
+      <!-- ── Step details (collapsible) ── -->
+      <details class="step-details" id="step-details" open>
+        <summary class="step-summary" id="step-summary">
+          <div class="step-summary-left">
+            <span class="step-spinner" id="step-spinner"></span>
+            <span class="step-summary-label" id="step-summary-label">Initializing…</span>
+          </div>
+          <span class="step-summary-caret">›</span>
+        </summary>
+        <div class="step-details-body">
+          <div class="step-info-grid" id="step-info-grid">
+            <!-- Populated dynamically -->
+          </div>
+          <div class="step-log-row" id="step-log-row" style="display:none">
+            <div class="step-log-label" id="step-log-label">Last output</div>
+            <pre class="step-log-pre" id="step-log-pre"></pre>
+          </div>
+        </div>
+      </details>
+
+      <!-- ── Stacked report sections ── -->
+      <div id="live-report">
+
+        <!-- 1. Simulation failure -->
+        <div class="report-card" id="section-failure" style="display:none">
+          <div class="card-header">
+            <span class="card-icon">🔴</span>
+            <h3>Simulation Failure</h3>
+          </div>
+          <div class="meta-row" id="failure-meta"></div>
+          <pre class="code-block" id="failure-log"></pre>
+        </div>
+
+        <!-- 2. Root cause -->
+        <div class="report-card" id="section-rca" style="display:none">
+          <div class="card-header">
+            <span class="card-icon">🧠</span>
+            <h3>Root Cause Analysis</h3>
+          </div>
+          <div class="rca-card" id="rca-card"></div>
+        </div>
+        <!-- 2.5 History -->
+        <div id="section-history" style="display:contents"></div>
+
+        <!-- 3. Proposed patch — side-by-side snippets + diff below -->
+        <div class="report-card" id="section-patch" style="display:none">
+          <div class="card-header">
+            <span class="card-icon">🔧</span>
+            <h3>Proposed Patch</h3>
+          </div>
+          <p class="patch-explanation" id="patch-explanation"></p>
+
+          <!-- Side-by-side original vs patched -->
+          <div class="snippet-row">
+            <div class="snippet-pane snippet-original">
+              <div class="pane-label pane-label-del">Original</div>
+              <pre class="code-block vl-block pane-code" id="snippet-original"></pre>
+            </div>
+            <div class="snippet-pane snippet-patched">
+              <div class="pane-label pane-label-add">Patched</div>
+              <pre class="code-block vl-block pane-code" id="snippet-patched"></pre>
+            </div>
+          </div>
+
+          <!-- Unified diff -->
+          <details class="diff-details">
+            <summary>View unified diff</summary>
+            <pre class="code-block diff-block" id="patch-diff"></pre>
+          </details>
+
+          <!-- Approval actions — shown only when awaiting -->
+          <div id="inline-approval" style="display:none" class="inline-approval">
+            <div class="approval-notice">
+              <svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/></svg>
+              Human review required — this patch has not been applied yet.
+            </div>
+            <div class="approval-row">
+              <input type="text" id="approval-comment" placeholder="Optional comment…" class="comment-input" />
+              <button class="btn-reject" id="btn-reject">❌ Reject</button>
+              <button class="btn-approve" id="btn-approve">✅ Approve Patch</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. Rerun result -->
+        <div class="report-card" id="section-rerun" style="display:none">
+          <div class="card-header">
+            <span class="card-icon" id="rerun-icon">🔁</span>
+            <h3 id="rerun-title">Rerun Simulation</h3>
+          </div>
+          <pre class="code-block" id="rerun-log"></pre>
+        </div>
+
+        <!-- Terminated banner -->
+        <div class="report-card card-terminated" id="section-terminated" style="display:none">
+          <div class="card-header">
+            <span class="card-icon">⛔</span>
+            <h3>Workflow Terminated</h3>
+          </div>
+          <p class="terminated-msg">This workflow was manually stopped before it could finish. Any partial results above reflect the state at the time of termination. Re-run the case from the Dashboard to start fresh.</p>
+        </div>
+
+      </div><!-- /live-report -->
+    </section>
+
+  </main>
+
+  <!-- Global toast -->
+  <div id="toast-container"></div>
+
+  <script src="/assets/app.js?v=12"></script>
+</body>
+</html>

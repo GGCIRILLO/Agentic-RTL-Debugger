@@ -27,6 +27,7 @@ with workflow.unsafe.imports_passed_through():
         RootCauseAnalysis,
         SimulationResult,
         WorkflowStatus,
+        DebugIteration,
     )
     from app.activities import (
         load_case_files,
@@ -141,6 +142,7 @@ class RTLDebugWorkflow:
                 failure_type="compile_error",
             )
             self._report = report
+            self._status = WorkflowStatus.failed
             logger.error("Compilation failed for case_id=%s — stopping.", case_id)
             return report.model_dump()
 
@@ -158,6 +160,7 @@ class RTLDebugWorkflow:
             report.status = WorkflowStatus.completed
             report.rerun_result = sim_result
             self._report = report
+            self._status = WorkflowStatus.completed
             logger.info("Simulation passed for case_id=%s — no debug needed.", case_id)
             return report.model_dump()
 
@@ -172,6 +175,7 @@ class RTLDebugWorkflow:
             retry_policy=_DEFAULT_RETRY,
         )
         report.failure_summary = failure
+        self._report = report
 
         # ----------------------------------------------------------------
         # Step 5 – Build context  [Phase 4]
@@ -194,6 +198,7 @@ class RTLDebugWorkflow:
             retry_policy=_DEFAULT_RETRY,
         )
         report.root_cause = root_cause
+        self._report = report
 
         # ----------------------------------------------------------------
         # Phase 8: Agentic Retry Loop
@@ -203,17 +208,38 @@ class RTLDebugWorkflow:
         max_iterations = 3
 
         for iteration in range(max_iterations):
+            if iteration > 0 and report.proposed_patch:
+                report.history.append(DebugIteration(
+                    patch=report.proposed_patch,
+                    approval_status=report.approval_status,
+                    rerun_result=report.rerun_result,
+                ))
+
             # ----------------------------------------------------------------
             # Step 7 – LLM: patch proposal  [Phase 5]
             # ----------------------------------------------------------------
             self._status = WorkflowStatus.proposing_patch
-            patch: PatchProposal = await workflow.execute_activity(
-                generate_patch,
-                (case_files, root_cause, sim_result, prev_patch, rerun_log),
-                start_to_close_timeout=timedelta(seconds=120),
-                retry_policy=_DEFAULT_RETRY,
-            )
+            report.proposed_patch = None
+            report.rerun_result = None
+            report.approval_status = ApprovalStatus.pending
+            self._report = report
+            
+            try:
+                patch: PatchProposal = await workflow.execute_activity(
+                    generate_patch,
+                    (case_files, root_cause, sim_result, prev_patch, rerun_log),
+                    start_to_close_timeout=timedelta(seconds=120),
+                    retry_policy=_DEFAULT_RETRY,
+                )
+            except Exception as e:
+                logger.error("Failed to generate patch after max retries: %s", e)
+                report.status = WorkflowStatus.failed
+                self._status = WorkflowStatus.failed
+                self._report = report
+                break
+
             report.proposed_patch = patch
+            self._report = report
             self._approval = None # Reset approval for each iteration
 
             # ----------------------------------------------------------------
@@ -231,10 +257,17 @@ class RTLDebugWorkflow:
                 report.approval_status = ApprovalStatus.rejected
                 report.status = WorkflowStatus.completed
                 self._report = report
+                self._status = WorkflowStatus.completed
                 logger.info("Patch rejected or timed out for case_id=%s.", case_id)
+                await workflow.execute_activity(
+                    save_report,
+                    report,
+                    start_to_close_timeout=timedelta(seconds=30),
+                )
                 return report.model_dump()
 
             report.approval_status = ApprovalStatus.approved
+            self._report = report
 
             # ----------------------------------------------------------------
             # Step 9 – Apply patch  [Phase 7]
@@ -262,6 +295,7 @@ class RTLDebugWorkflow:
 
             if rerun.simulation_passed:
                 report.status = WorkflowStatus.completed
+                self._status = WorkflowStatus.completed
                 logger.info("Patch successful on iteration %d", iteration + 1)
                 break
             else:
@@ -272,6 +306,7 @@ class RTLDebugWorkflow:
         else:
             # Reached max iterations without passing
             report.status = WorkflowStatus.failed
+            self._status = WorkflowStatus.failed
             logger.error("Failed to find a working patch after %d iterations", max_iterations)
 
         # ----------------------------------------------------------------
@@ -282,4 +317,9 @@ class RTLDebugWorkflow:
             report,
             start_to_close_timeout=timedelta(seconds=30),
         )
+        
+        if report.status == WorkflowStatus.failed:
+            from temporalio.exceptions import ApplicationError
+            raise ApplicationError("Workflow failed logically after agentic debug attempts")
+            
         return report.model_dump()
