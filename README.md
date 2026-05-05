@@ -1,5 +1,12 @@
 # Agentic RTL Debugger
 
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
+![Temporal](https://img.shields.io/badge/Temporal-Workflow-black?logo=temporal&logoColor=white)
+![Ollama](https://img.shields.io/badge/Ollama-Local%20LLM-gray?logo=ollama&logoColor=white)
+![Icarus Verilog](https://img.shields.io/badge/Icarus%20Verilog-RTL%20Sim-purple)
+![License](https://img.shields.io/github/license/GGCIRILLO/Agentic-RTL-Debugger)
+![Last Commit](https://img.shields.io/github/last-commit/GGCIRILLO/Agentic-RTL-Debugger)
+
 > An agentic AI workflow for hardware verification — built to explore **Temporal durable workflows**, **LLM-powered debugging agents**, and **local Ollama models**.
 
 ---
@@ -181,6 +188,7 @@ python run_api.py
 ```
 
 Open **http://localhost:8000** in your browser to use the web UI.
+> 💡 Tip: the Temporal UI is also available at **http://localhost:8233** — useful for monitoring workflow execution state directly.
 
 ### Terminal 4 — Start a workflow (CLI or web UI)
 
