@@ -39,9 +39,9 @@ The whole pipeline is backed by **Temporal.io**, which makes every step durable 
 
 ![Approval gate screenshot](docs/images/approval-gate.png)
 
-### Debug report
+### Agentic Loop
 
-![Report screenshot](docs/images/report.png)
+![Agentic loop screenshot](docs/images/agentic-loop.png)
 
 ---
 
