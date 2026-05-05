@@ -657,7 +657,7 @@ function renderDiff(raw) {
 function extractOriginalFromDiff(diff) {
   if (!diff) return '';
   const code = diff.split('\n')
-    .filter(l => (l.startsWith(' ') || l.startsWith('-')) && !l.startsWith('---'))
+    .filter(l => (l.startsWith(' ') || l.startsWith('-')) && !l.startsWith('--- '))
     .map(l => l.slice(1))
     .join('\n');
   return highlightVerilog(code);
@@ -667,7 +667,7 @@ function extractOriginalFromDiff(diff) {
 function extractPatchedFromDiff(diff) {
   if (!diff) return '';
   const code = diff.split('\n')
-    .filter(l => (l.startsWith(' ') || l.startsWith('+')) && !l.startsWith('+++'))
+    .filter(l => (l.startsWith(' ') || l.startsWith('+')) && !l.startsWith('+++ '))
     .map(l => l.slice(1))
     .join('\n');
   return highlightVerilog(code);
