@@ -181,8 +181,6 @@ async def stream_status(workflow_id: str, run_id: str | None = None):
         # Send an immediate "connected" event
         yield f"data: {json.dumps({'event': 'connected', 'workflow_id': workflow_id})}\n\n"
 
-        terminal_states = {"completed", "failed"}
-
         while True:
             try:
                 desc = await handle.describe()
