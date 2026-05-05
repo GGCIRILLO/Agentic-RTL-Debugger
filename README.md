@@ -27,8 +27,6 @@ The whole pipeline is backed by **Temporal.io**, which makes every step durable 
 
 ## Showcase
 
-> _Screenshots and screen-recordings will be added here._
-
 ### Dashboard — case selection
 
 ![Dashboard screenshot](docs/images/dashboard.png)
@@ -85,16 +83,16 @@ See [`docs/architecture.md`](docs/architecture.md) for the detailed Temporal wor
 
 ## Tech stack
 
-| Component | Technology |
-|---|---|
-| Durable orchestration | [Temporal.io](https://temporal.io) (Python SDK ≥ 1.7) |
-| LLM backend (default) | [Ollama](https://ollama.com) — local models, no cloud key needed |
-| LLM alternatives | OpenAI API, Anthropic API |
-| Default model | `qwen2.5-coder:7b` (recommended for RTL reasoning) |
-| RTL simulation | [Icarus Verilog](https://steveicarus.github.io/iverilog/) (`iverilog` + `vvp`) |
-| API server | [FastAPI](https://fastapi.tiangolo.com) + Uvicorn |
-| Data models | [Pydantic v2](https://docs.pydantic.dev) |
-| Web UI | Vanilla HTML / CSS / JS (vibe-coded) |
+| Component             | Technology                                                                     |
+| --------------------- | ------------------------------------------------------------------------------ |
+| Durable orchestration | [Temporal.io](https://temporal.io) (Python SDK ≥ 1.7)                          |
+| LLM backend (default) | [Ollama](https://ollama.com) — local models, no cloud key needed               |
+| LLM alternatives      | OpenAI API, Anthropic API                                                      |
+| Default model         | `qwen2.5-coder:7b` (recommended for RTL reasoning)                             |
+| RTL simulation        | [Icarus Verilog](https://steveicarus.github.io/iverilog/) (`iverilog` + `vvp`) |
+| API server            | [FastAPI](https://fastapi.tiangolo.com) + Uvicorn                              |
+| Data models           | [Pydantic v2](https://docs.pydantic.dev)                                       |
+| Web UI                | Vanilla HTML / CSS / JS (vibe-coded)                                           |
 
 ---
 
@@ -113,12 +111,14 @@ See [`docs/architecture.md`](docs/architecture.md) for the detailed Temporal wor
 ## Setup
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/GGCIRILLO/Agentic-RTL-Debugger.git
    cd Agentic-RTL-Debugger
    ```
 
 2. **Create and activate a virtual environment**:
+
    ```bash
    python3 -m venv venv
    source venv/bin/activate        # macOS / Linux
@@ -126,26 +126,30 @@ See [`docs/architecture.md`](docs/architecture.md) for the detailed Temporal wor
    ```
 
 3. **Install dependencies**:
+
    ```bash
    pip install -r requirements.txt
    ```
 
 4. **Configure environment variables**:
+
    ```bash
    cp .env.example .env
    # Edit .env — set LLM_PROVIDER, LLM_MODEL, and any required API keys
    ```
 
 5. **Start the Temporal development server** (separate terminal):
+
    ```bash
    temporal server start-dev
    ```
 
-6. *(Ollama only)* **Start Ollama and pull the model**:
+6. _(Ollama only)_ **Start Ollama and pull the model**:
    ```bash
    ollama serve               # in a separate terminal
    ollama pull qwen2.5-coder:7b
    ```
+   (_Only if not already started_)
 
 ---
 
@@ -154,22 +158,28 @@ See [`docs/architecture.md`](docs/architecture.md) for the detailed Temporal wor
 All four processes must be running simultaneously. Open four terminals.
 
 ### Terminal 1 — Temporal server
+
 ```bash
 temporal server start-dev
 ```
 
 ### Terminal 2 — Temporal Worker
+
 ```bash
 source venv/bin/activate
 python run_worker.py
 ```
 
+(_Only if not already running_)
+
 ### Terminal 3 — FastAPI server (web UI + API)
+
 ```bash
 source venv/bin/activate
 python run_api.py
 # or: uvicorn app.api.main:app --reload --port 8000
 ```
+
 Open **http://localhost:8000** in your browser to use the web UI.
 
 ### Terminal 4 — Start a workflow (CLI or web UI)
@@ -177,6 +187,7 @@ Open **http://localhost:8000** in your browser to use the web UI.
 **Via the web UI**: click a case card on the Dashboard, then watch the pipeline.
 
 **Via CLI**:
+
 ```bash
 # Start a workflow
 python run_starter.py counter_bug
@@ -189,15 +200,16 @@ python run_signal.py rtl-debug-counter_bug approve
 
 ## Available bug cases
 
-| Case | Description |
-|---|---|
+| Case          | Description                                                      |
+| ------------- | ---------------------------------------------------------------- |
 | `counter_bug` | 4-bit synchronous counter — missing `else` branch in reset logic |
-| `alu_bug` | Simple ALU — incorrect operation encoding |
-| `dff_bug` | D flip-flop — wrong clock-edge sensitivity |
-| `mux_bug` | 4-to-1 multiplexer — off-by-one in select logic |
-| `fifo_bug` | Synchronous FIFO — pointer wrap-around defect |
+| `alu_bug`     | Simple ALU — incorrect operation encoding                        |
+| `dff_bug`     | D flip-flop — wrong clock-edge sensitivity                       |
+| `mux_bug`     | 4-to-1 multiplexer — off-by-one in select logic                  |
+| `fifo_bug`    | Synchronous FIFO — pointer wrap-around defect                    |
 
 Each case lives under `cases/<case_id>/` and contains:
+
 - `<module>.v` — intentionally buggy RTL source
 - `tb_<module>.v` — testbench that exposes the bug
 - `spec.md` — human-readable specification
