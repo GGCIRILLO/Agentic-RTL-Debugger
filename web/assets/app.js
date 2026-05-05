@@ -294,8 +294,6 @@ async function refreshLiveView(wfId) {
 /* ── Apply update ──────────────────────────────────────────────────── */
 const STEPS = ['started','simulating','parsing','analyzing','proposing_patch',
                'awaiting_approval','applying_patch','rerunning','completed'];
-// Terminal statuses not in the pipeline progression
-const TERMINAL = new Set(['completed','failed','terminated']);
 
 /* Human-readable description for each pipeline step */
 const STEP_META = {
