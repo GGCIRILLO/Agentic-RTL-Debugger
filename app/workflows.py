@@ -259,6 +259,11 @@ class RTLDebugWorkflow:
                 self._report = report
                 self._status = WorkflowStatus.completed
                 logger.info("Patch rejected or timed out for case_id=%s.", case_id)
+                await workflow.execute_activity(
+                    save_report,
+                    report,
+                    start_to_close_timeout=timedelta(seconds=30),
+                )
                 return report.model_dump()
 
             report.approval_status = ApprovalStatus.approved
