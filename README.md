@@ -325,4 +325,3 @@ Agentic-RTL-Debugger/
 
 - [`docs/architecture.md`](docs/architecture.md) — Detailed Temporal workflow architecture, mermaid diagrams, code references
 - [`docs/web-architecture.md`](docs/web-architecture.md) — Web UI and API layer architecture
-- [`docs/roadmap.md`](docs/roadmap.md) — Implementation phases and current status
